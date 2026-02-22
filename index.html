@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TrailFrame 3D | 动态旅行地图动画</title>
+    <meta name="description" content="3D 旅行路线动画编辑器。" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <div id="app" class="app-shell">
+      <header class="app-header">
+        <div class="brand-wrap">
+          <span class="brand-dot"></span>
+          <div>
+            <p class="brand-kicker">MAP ANIMATION STUDIO</p>
+            <h1>TrailFrame 3D</h1>
+          </div>
+        </div>
+        <p class="header-tip">把你的旅行轨迹直接生成动态地图视频</p>
+      </header>
+
+      <main class="workspace">
+        <aside class="sidebar">
+          <div class="panel-head">
+            <h2>路线编辑</h2>
+            <span>经度,纬度</span>
+          </div>
+
+          <div class="route-form" id="routeForm">
+            <div class="stop-card">
+              <label>起点</label>
+              <input id="startName" type="text" value="NOVA YORK" />
+              <input id="startCountry" type="text" value="UNITED STATES" />
+              <input id="startCoord" type="text" value="-74.006,40.7128" />
+            </div>
+
+            <div class="stop-card">
+              <label>途径点 1</label>
+              <input id="via1Name" type="text" value="KIZIMKAZI" />
+              <input id="via1Country" type="text" value="TANZANIA" />
+              <input id="via1Coord" type="text" value="39.512,-6.452" />
+            </div>
+
+            <div class="stop-card">
+              <label>途径点 2</label>
+              <input id="via2Name" type="text" value="TOKYO" />
+              <input id="via2Country" type="text" value="JAPAN" />
+              <input id="via2Coord" type="text" value="139.6917,35.6895" />
+            </div>
+
+            <div class="stop-card">
+              <label>目的地</label>
+              <input id="endName" type="text" value="SINGAPORE" />
+              <input id="endCountry" type="text" value="SINGAPORE" />
+              <input id="endCoord" type="text" value="103.8198,1.3521" />
+            </div>
+          </div>
+
+          <div class="sidebar-actions">
+            <div class="tool-select">
+              <span>每段交通工具</span>
+              <label>起点 → 途径点1
+                <select id="legMode1">
+                  <option value="plane">飞机</option>
+                  <option value="car" selected>汽车</option>
+                </select>
+              </label>
+              <label>途径点1 → 途径点2
+                <select id="legMode2">
+                  <option value="plane" selected>飞机</option>
+                  <option value="car">汽车</option>
+                </select>
+              </label>
+              <label>途径点2 → 目的地
+                <select id="legMode3">
+                  <option value="plane" selected>飞机</option>
+                  <option value="car">汽车</option>
+                </select>
+              </label>
+            </div>
+            <button id="generateBtn" class="btn btn-solid">生成路线</button>
+          </div>
+        </aside>
+
+        <section class="map-panel">
+          <div id="globeContainer" class="map-render" aria-label="地图渲染区域">
+            <div id="arrivalCard" class="arrival-card">
+              <p class="arrival-city" id="arrivalCity">-</p>
+              <p class="arrival-country" id="arrivalCountry">-</p>
+              <p class="arrival-km" id="arrivalKm">-</p>
+            </div>
+          </div>
+          <div class="player-controls">
+            <button id="playBtn" class="btn btn-solid">播放</button>
+            <button id="pauseBtn" class="btn btn-ghost">暂停</button>
+            <button id="exportBtn" class="btn btn-ghost">导出</button>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
