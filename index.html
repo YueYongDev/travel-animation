@@ -1,107 +1,195 @@
 <!doctype html>
-<html lang="zh-CN">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>TrailFrame 3D | 动态旅行地图动画</title>
-    <meta name="description" content="3D 旅行路线动画编辑器。" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet" />
-  </head>
-  <body>
-    <div id="app" class="app-shell">
-      <header class="app-header">
-        <div class="brand-wrap">
-          <span class="brand-dot"></span>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TrailFrame 3D | Dynamic Travel Route Animation</title>
+  <meta name="description" content="Create beautiful 3D travel route animations on a globe." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Sora:wght@600;700&display=swap"
+    rel="stylesheet" />
+</head>
+
+<body>
+  <div id="app" class="app-shell">
+    <header class="app-header">
+      <div class="brand-wrap">
+        <span class="brand-orb"></span>
+        <h1>TrailFrame 3D</h1>
+      </div>
+      <nav class="top-nav" aria-label="Main navigation">
+        <a href="#">Gallery</a>
+        <a href="#">Pricing</a>
+        <a href="#">Help</a>
+        <button class="signin-btn" type="button">Sign In</button>
+      </nav>
+    </header>
+
+    <main class="workspace">
+      <aside class="sidebar-card">
+        <h2>Route Planning</h2>
+
+        <div class="timeline-row">
+          <span class="pin start-pin" aria-hidden="true"></span>
           <div>
-            <p class="brand-kicker">MAP ANIMATION STUDIO</p>
-            <h1>TrailFrame 3D</h1>
+            <input id="startName" type="text" value="New York, USA" />
           </div>
         </div>
-        <p class="header-tip">把你的旅行轨迹直接生成动态地图视频</p>
-      </header>
 
-      <main class="workspace">
-        <aside class="sidebar">
-          <div class="panel-head">
-            <h2>路线编辑</h2>
-            <span>经度,纬度</span>
+        <div class="timeline-connector">
+          <div class="connector-line" aria-hidden="true"></div>
+          <button type="button" class="mode-toggle" data-select="legMode1" data-mode="plane"
+            aria-label="Transport mode: plane">
+            <svg class="icon-car" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path
+                d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2" />
+              <circle cx="7" cy="17" r="2" />
+              <path d="M9 17h6" />
+              <circle cx="17" cy="17" r="2" />
+            </svg>
+            <svg class="icon-plane" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path
+                d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z" />
+            </svg>
+            <svg class="icon-ship" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path
+                d="M2 21c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1 .6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1" />
+              <path d="M19.38 20A11.6 11.6 0 0 0 21 14l-9-4-9 4c0 2.9.94 5.34 2.81 7.76" />
+              <path d="M19 13V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v6" />
+              <path d="M12 10v-3" />
+            </svg>
+          </button>
+          <div class="connector-line" aria-hidden="true"></div>
+        </div>
+
+        <div class="timeline-row">
+          <span class="pin mid-pin" aria-hidden="true"></span>
+          <div>
+            <input id="via1Name" type="text" value="Waypoint 1" />
           </div>
+        </div>
 
-          <div class="route-form" id="routeForm">
-            <div class="stop-card">
-              <label>起点</label>
-              <input id="startName" type="text" value="NOVA YORK" />
-              <input id="startCountry" type="text" value="UNITED STATES" />
-              <input id="startCoord" type="text" value="-74.006,40.7128" />
-            </div>
+        <div class="timeline-connector">
+          <div class="connector-line" aria-hidden="true"></div>
+          <button type="button" class="mode-toggle" data-select="legMode2" data-mode="plane"
+            aria-label="Transport mode: plane">
+            <svg class="icon-car" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path
+                d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2" />
+              <circle cx="7" cy="17" r="2" />
+              <path d="M9 17h6" />
+              <circle cx="17" cy="17" r="2" />
+            </svg>
+            <svg class="icon-plane" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path
+                d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z" />
+            </svg>
+            <svg class="icon-ship" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path
+                d="M2 21c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1 .6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1" />
+              <path d="M19.38 20A11.6 11.6 0 0 0 21 14l-9-4-9 4c0 2.9.94 5.34 2.81 7.76" />
+              <path d="M19 13V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v6" />
+              <path d="M12 10v-3" />
+            </svg>
+          </button>
+          <div class="connector-line" aria-hidden="true"></div>
+        </div>
 
-            <div class="stop-card">
-              <label>途径点 1</label>
-              <input id="via1Name" type="text" value="KIZIMKAZI" />
-              <input id="via1Country" type="text" value="TANZANIA" />
-              <input id="via1Coord" type="text" value="39.512,-6.452" />
-            </div>
-
-            <div class="stop-card">
-              <label>途径点 2</label>
-              <input id="via2Name" type="text" value="TOKYO" />
-              <input id="via2Country" type="text" value="JAPAN" />
-              <input id="via2Coord" type="text" value="139.6917,35.6895" />
-            </div>
-
-            <div class="stop-card">
-              <label>目的地</label>
-              <input id="endName" type="text" value="SINGAPORE" />
-              <input id="endCountry" type="text" value="SINGAPORE" />
-              <input id="endCoord" type="text" value="103.8198,1.3521" />
-            </div>
+        <div class="timeline-row">
+          <span class="pin end-pin" aria-hidden="true"></span>
+          <div>
+            <input id="endName" type="text" value="Kizimkazi, Tanzania" />
           </div>
+        </div>
 
-          <div class="sidebar-actions">
-            <div class="tool-select">
-              <span>每段交通工具</span>
-              <label>起点 → 途径点1
-                <select id="legMode1">
-                  <option value="plane">飞机</option>
-                  <option value="car" selected>汽车</option>
-                </select>
-              </label>
-              <label>途径点1 → 途径点2
-                <select id="legMode2">
-                  <option value="plane" selected>飞机</option>
-                  <option value="car">汽车</option>
-                </select>
-              </label>
-              <label>途径点2 → 目的地
-                <select id="legMode3">
-                  <option value="plane" selected>飞机</option>
-                  <option value="car">汽车</option>
-                </select>
-              </label>
-            </div>
-            <button id="generateBtn" class="btn btn-solid">生成路线</button>
-          </div>
-        </aside>
+        <button class="add-destination" type="button">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M8 12h8" />
+            <path d="M12 8v8" />
+          </svg>
+          Add destination
+        </button>
 
-        <section class="map-panel">
-          <div id="globeContainer" class="map-render" aria-label="地图渲染区域">
-            <div id="arrivalCard" class="arrival-card">
-              <p class="arrival-city" id="arrivalCity">-</p>
-              <p class="arrival-country" id="arrivalCountry">-</p>
-              <p class="arrival-km" id="arrivalKm">-</p>
-            </div>
-          </div>
-          <div class="player-controls">
-            <button id="playBtn" class="btn btn-solid">播放</button>
-            <button id="pauseBtn" class="btn btn-ghost">暂停</button>
-            <button id="exportBtn" class="btn btn-ghost">导出</button>
-          </div>
-        </section>
-      </main>
-    </div>
+        <button id="generateBtn" class="generate-btn" type="button">Generate Route</button>
 
-    <script type="module" src="/src/main.js"></script>
-  </body>
+        <input id="startCountry" class="hidden-field" type="text" value="UNITED STATES" tabindex="-1" />
+        <input id="startCoord" class="hidden-field" type="text" value="-74.006,40.7128" tabindex="-1" />
+        <input id="via1Country" class="hidden-field" type="text" value="" tabindex="-1" />
+        <input id="via1Coord" class="hidden-field" type="text" value="" tabindex="-1" />
+        <input id="via2Name" class="hidden-field" type="text" value="" tabindex="-1" />
+        <input id="via2Country" class="hidden-field" type="text" value="" tabindex="-1" />
+        <input id="via2Coord" class="hidden-field" type="text" value="" tabindex="-1" />
+        <input id="endCountry" class="hidden-field" type="text" value="TANZANIA" tabindex="-1" />
+        <input id="endCoord" class="hidden-field" type="text" value="39.512,-6.452" tabindex="-1" />
+
+        <select id="legMode1" class="hidden-field" aria-hidden="true" tabindex="-1">
+          <option value="plane" selected>plane</option>
+          <option value="car">car</option>
+          <option value="ship">ship</option>
+        </select>
+        <select id="legMode2" class="hidden-field" aria-hidden="true" tabindex="-1">
+          <option value="plane" selected>plane</option>
+          <option value="car">car</option>
+          <option value="ship">ship</option>
+        </select>
+        <select id="legMode3" class="hidden-field" aria-hidden="true" tabindex="-1">
+          <option value="plane" selected>plane</option>
+          <option value="car">car</option>
+          <option value="ship">ship</option>
+        </select>
+      </aside>
+
+      <section class="map-section">
+        <div id="globeContainer" class="map-render" aria-label="Map render area">
+          <div id="arrivalCard" class="arrival-card">
+            <p class="arrival-city" id="arrivalCity">NEW YORK</p>
+            <p class="arrival-country" id="arrivalCountry">UNITED STATES</p>
+            <p class="arrival-km" id="arrivalKm">+12454 km</p>
+          </div>
+        </div>
+
+        <div class="player-controls">
+          <button id="playBtn" class="player-btn active" type="button">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"
+              stroke="none">
+              <polygon points="6 3 20 12 6 21 6 3" />
+            </svg>
+            Play
+          </button>
+          <button id="pauseBtn" class="player-btn" type="button">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"
+              stroke="none">
+              <rect x="6" y="4" width="4" height="16" />
+              <rect x="14" y="4" width="4" height="16" />
+            </svg>
+            Pause
+          </button>
+          <button id="exportBtn" class="player-btn" type="button">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            Export
+          </button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+
 </html>

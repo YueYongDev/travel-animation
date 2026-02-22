@@ -11,6 +11,7 @@ const arrivalCity = document.getElementById("arrivalCity");
 const arrivalCountry = document.getElementById("arrivalCountry");
 const arrivalKm = document.getElementById("arrivalKm");
 const globeContainer = document.getElementById("globeContainer");
+const modeToggles = document.querySelectorAll(".mode-toggle[data-select]");
 
 let scene = null;
 let playing = false;
@@ -18,6 +19,30 @@ let paused = false;
 let building = false;
 let arrivalTarget = null;
 let detachArrivalTracker = null;
+
+const MODES = ["car", "plane", "ship"];
+
+function initModeToggles() {
+  modeToggles.forEach((btn) => {
+    const selectId = btn.dataset.select;
+    const selectEl = selectId ? document.getElementById(selectId) : null;
+    if (!selectEl) return;
+
+    // Sync initial state
+    const initial = selectEl.value || "car";
+    btn.dataset.mode = initial;
+    btn.setAttribute("aria-label", `Transport mode: ${initial}`);
+
+    btn.addEventListener("click", () => {
+      const current = btn.dataset.mode;
+      const idx = MODES.indexOf(current);
+      const next = MODES[(idx + 1) % MODES.length];
+      btn.dataset.mode = next;
+      btn.setAttribute("aria-label", `Transport mode: ${next}`);
+      selectEl.value = next;
+    });
+  });
+}
 
 function parseCoord(text) {
   const [lonStr, latStr] = text.split(",").map((v) => v.trim());
@@ -103,12 +128,12 @@ async function initScene(stops, legModes) {
   if (building) return;
   building = true;
   generateBtn.disabled = true;
-  generateBtn.textContent = "生成中...";
-  if (scene) scene.destroy();
+  generateBtn.textContent = "Generating...";
   if (detachArrivalTracker) {
     detachArrivalTracker();
     detachArrivalTracker = null;
   }
+  if (scene) scene.destroy();
   scene = await createGlobeScene("globeContainer", stops, legModes);
   const viewerRef = scene.viewer;
   const onPostRender = () => updateArrivalCardPosition();
@@ -120,9 +145,9 @@ async function initScene(stops, legModes) {
   hideArrival();
   building = false;
   generateBtn.disabled = false;
-  generateBtn.textContent = "生成路线";
+  generateBtn.textContent = "Generate Route";
   paused = false;
-  pauseBtn.textContent = "暂停";
+  pauseBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> Pause';
 }
 
 async function run() {
@@ -130,7 +155,7 @@ async function run() {
   hideArrival();
   playing = true;
   playBtn.disabled = true;
-  playBtn.textContent = "播放中...";
+  playBtn.textContent = "Playing…";
 
   try {
     await scene.play((payload) => {
@@ -141,9 +166,9 @@ async function run() {
   } finally {
     playing = false;
     paused = false;
-    pauseBtn.textContent = "暂停";
+    pauseBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> Pause';
     playBtn.disabled = false;
-    playBtn.textContent = "重新播放";
+    playBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg> Replay';
   }
 }
 
@@ -152,11 +177,11 @@ generateBtn.addEventListener("click", async () => {
     const stops = collectStops();
     const legModes = collectLegModes(stops.length - 1);
     await initScene(stops, legModes);
-    playBtn.textContent = "播放";
+    playBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="6 3 20 12 6 21 6 3"/></svg> Play';
   } catch (error) {
     building = false;
     generateBtn.disabled = false;
-    generateBtn.textContent = "生成路线";
+    generateBtn.textContent = "Generate Route";
     // eslint-disable-next-line no-alert
     alert(error.message);
   }
@@ -169,11 +194,11 @@ pauseBtn.addEventListener("click", () => {
   if (!paused) {
     scene.pause();
     paused = true;
-    pauseBtn.textContent = "继续";
+    pauseBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="6 3 20 12 6 21 6 3"/></svg> Resume';
   } else {
     scene.resume();
     paused = false;
-    pauseBtn.textContent = "暂停";
+    pauseBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> Pause';
   }
 });
 
@@ -190,13 +215,12 @@ exportBtn.addEventListener("click", () => {
 
 window.addEventListener("beforeunload", () => scene?.destroy());
 window.addEventListener("beforeunload", () => detachArrivalTracker?.());
+initModeToggles();
 
 initScene(
   [
-    { city: "NOVA YORK", country: "UNITED STATES", lon: -74.006, lat: 40.7128 },
-    { city: "KIZIMKAZI", country: "TANZANIA", lon: 39.512, lat: -6.452 },
-    { city: "TOKYO", country: "JAPAN", lon: 139.6917, lat: 35.6895 },
-    { city: "SINGAPORE", country: "SINGAPORE", lon: 103.8198, lat: 1.3521 }
+    { city: "NEW YORK", country: "UNITED STATES", lon: -74.006, lat: 40.7128 },
+    { city: "KIZIMKAZI", country: "TANZANIA", lon: 39.512, lat: -6.452 }
   ],
-  ["car", "plane", "plane"]
+  ["plane"]
 );

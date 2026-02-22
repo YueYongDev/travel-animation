@@ -10,10 +10,15 @@ function toCartesianFromDeg(lon, lat, h = 0) {
 }
 
 function makeVehicleIcon(type = "plane") {
-  const emoji = type === "car" ? "🚗" : "✈️";
-  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='96' height='96' viewBox='0 0 96 96'>
-    <circle cx='48' cy='48' r='27' fill='#ff2a94'/>
-    <text x='48' y='59' text-anchor='middle' font-size='34'>${emoji}</text>
+  const iconPaths = {
+    car: `<path d="M62 58h5c1.7 0 3-1.2 3-3v-8c0-2.6-2-5-4.4-5.5C61.6 40.6 54 39 54 39s-3.8-4-6.4-6.7c-1.4-1.2-3.2-2-5.2-2H28c-1.7 0-3.2 1.2-4 2.6l-4 8.5A11 11 0 0 0 19 45v11c0 1.7 1.2 3 3 3h5" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="33" cy="58" r="5" fill="none" stroke="white" stroke-width="2.5"/><path d="M38 58h16" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"/><circle cx="59" cy="58" r="5" fill="none" stroke="white" stroke-width="2.5"/>`,
+    plane: `<path d="M55.4 60.6 50 40l10.5-10.5C64 26 65.5 20 64 17c-3-1.5-9 0-13.5 4.5L43 29l-24.6-5.4c-1.5-.3-2.7.3-3.3 1.5l-.9 1.5c-.6 1.5-.3 3 .9 3.9L30 40l-6 9H16l-3 3 9 6 6 9 3-3v-8l9-6 10.5 15.9c.9 1.2 2.4 1.5 3.9.9l1.5-.6c1.2-.9 1.8-2.1 1.5-3.6z" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>`,
+    ship: `<path d="M19 66c1.8 1.5 3.6 3 7.5 3 7.5 0 7.5-6 15-6 3.9 0 5.7 1.5 7.5 3 1.8 1.5 3.6 3 7.5 3 7.5 0 7.5-6 15-6 3.9 0 5.7 1.5 7.5 3" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M62.1 63A34.8 34.8 0 0 0 67 45l-27-12-27 12c0 8.7 2.8 16 8.4 23.3" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M61 42V24a6 6 0 0 0-6-6H25a6 6 0 0 0-6 6v18" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M40 33v-9" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"/>`
+  };
+  const path = iconPaths[type] || iconPaths.plane;
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 80 80'>
+    <circle cx='40' cy='40' r='28' fill='%231a1a1a' opacity='0.85'/>
+    <g transform='translate(-4,-4) scale(0.9)'>${path}</g>
   </svg>`;
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
@@ -97,6 +102,18 @@ async function buildSegments(stops, legModes) {
       continue;
     }
 
+    if (mode === "ship") {
+      segments.push({
+        mode,
+        points: buildPlanePath(from, to, 130).map((point) => {
+          const c = Cesium.Cartographic.fromCartesian(point);
+          return Cesium.Cartesian3.fromRadians(c.longitude, c.latitude, 42000);
+        }),
+        km: geodesicKm(from, to)
+      });
+      continue;
+    }
+
     try {
       const road = await fetchRoadRoute(from, to);
       segments.push({
@@ -175,7 +192,11 @@ export async function createGlobeScene(containerId, stops, legModes = []) {
   viewer.scene.globe.preloadAncestors = true;
   viewer.scene.globe.preloadSiblings = true;
   viewer.scene.globe.tileCacheSize = 500;
-  viewer.scene.backgroundColor = Cesium.Color.fromCssColorString("#eef3f7");
+  viewer.scene.backgroundColor = Cesium.Color.fromCssColorString("#f5f4f2");
+  viewer.scene.skyBox.show = false;
+  viewer.scene.globe.showGroundAtmosphere = false;
+  viewer.scene.sun.show = false;
+  viewer.scene.moon.show = false;
   if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = false;
 
   const segments = await buildSegments(stops, legModes);
@@ -187,10 +208,10 @@ export async function createGlobeScene(containerId, stops, legModes = []) {
       positions: new Cesium.CallbackProperty(() => activePositions, false),
       width: 6,
       material: new Cesium.PolylineGlowMaterialProperty({
-        glowPower: 0.18,
-        color: Cesium.Color.fromCssColorString("#ff2a94")
+        glowPower: 0.2,
+        color: Cesium.Color.fromCssColorString("#555555")
       }),
-      depthFailMaterial: Cesium.Color.fromCssColorString("#ff6fb9")
+      depthFailMaterial: Cesium.Color.fromCssColorString("#555555")
     }
   });
 
@@ -199,14 +220,13 @@ export async function createGlobeScene(containerId, stops, legModes = []) {
       position: midpoint(seg.points),
       label: {
         text: `+${Math.round(seg.km)} km`,
-        font: "700 22px Manrope, sans-serif",
-        fillColor: Cesium.Color.fromCssColorString("#f4fbff"),
-        outlineColor: Cesium.Color.fromCssColorString("#314659"),
-        outlineWidth: 4,
+        font: "700 20px Manrope, sans-serif",
+        fillColor: Cesium.Color.fromCssColorString("#1a1a1a"),
+        outlineColor: Cesium.Color.WHITE,
+        outlineWidth: 3,
         style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-        showBackground: true,
-        backgroundColor: Cesium.Color.fromCssColorString("rgba(26,43,60,0.56)"),
-        pixelOffset: new Cesium.Cartesian2(0, -34),
+        showBackground: false,
+        pixelOffset: new Cesium.Cartesian2(0, -30),
         horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
         verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
         disableDepthTestDistance: Number.POSITIVE_INFINITY,
@@ -219,8 +239,8 @@ export async function createGlobeScene(containerId, stops, legModes = []) {
     viewer.entities.add({
       position: toCartesianFromDeg(stop.lon, stop.lat, 12000),
       point: {
-        pixelSize: 9,
-        color: Cesium.Color.fromCssColorString("#ff2a94"),
+        pixelSize: 10,
+        color: Cesium.Color.fromCssColorString("#1a1a1a"),
         outlineColor: Cesium.Color.WHITE,
         outlineWidth: 2,
         disableDepthTestDistance: Number.POSITIVE_INFINITY,
@@ -228,13 +248,12 @@ export async function createGlobeScene(containerId, stops, legModes = []) {
       },
       label: {
         text: stop.city,
-        font: "700 18px Manrope, sans-serif",
-        fillColor: Cesium.Color.fromCssColorString("#ffffff"),
-        outlineColor: Cesium.Color.fromCssColorString("#30465a"),
+        font: "700 20px Manrope, sans-serif",
+        fillColor: Cesium.Color.fromCssColorString("#1a1a1a"),
+        outlineColor: Cesium.Color.WHITE,
         outlineWidth: 3,
         style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-        showBackground: true,
-        backgroundColor: Cesium.Color.fromCssColorString("rgba(26,43,60,0.42)"),
+        showBackground: false,
         pixelOffset: new Cesium.Cartesian2(0, -28),
         horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
         verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
@@ -255,10 +274,10 @@ export async function createGlobeScene(containerId, stops, legModes = []) {
   });
 
   viewer.camera.setView({
-    destination: toCartesianFromDeg(stops[0].lon, stops[0].lat, 3600000),
+    destination: toCartesianFromDeg(6, 20, 11800000),
     orientation: {
-      heading: Cesium.Math.toRadians(8),
-      pitch: Cesium.Math.toRadians(-62),
+      heading: Cesium.Math.toRadians(6),
+      pitch: Cesium.Math.toRadians(-26),
       roll: 0
     }
   });
@@ -295,8 +314,8 @@ export async function createGlobeScene(containerId, stops, legModes = []) {
 
     const next = full[Math.min(end + 1, full.length - 1)];
     const breathe = Math.sin(tValue * 0.04) * 0.5 + 0.5;
-    const range = 2920000 - breathe * 140000;
-    const pitch = Cesium.Math.toRadians(-63 + breathe * 0.6);
+    const range = 7200000 - breathe * 320000;
+    const pitch = Cesium.Math.toRadians(-40 + breathe * 0.8);
     viewer.camera.lookAt(pos, new Cesium.HeadingPitchRange(fixedHeading, pitch, range));
 
     const winA = viewer.scene.cartesianToCanvasCoordinates(pos);
@@ -431,15 +450,16 @@ export async function createGlobeScene(containerId, stops, legModes = []) {
   }
 
   await warmupTiles();
-  viewer.camera.flyTo({
-    destination: toCartesianFromDeg(stops[0].lon, stops[0].lat, 3600000),
-    orientation: {
-      heading: Cesium.Math.toRadians(8),
-      pitch: Cesium.Math.toRadians(-62),
-      roll: 0
-    },
-    duration: 0
-  });
+  const routeMid = midpoint(full);
+  viewer.camera.lookAt(
+    routeMid,
+    new Cesium.HeadingPitchRange(
+      fixedHeading,
+      Cesium.Math.toRadians(-38),
+      7200000
+    )
+  );
+  viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
 
   return { play, pause, resume, exportFrame, destroy, viewer };
 }
