@@ -10,15 +10,17 @@ function toCartesianFromDeg(lon, lat, h = 0) {
 }
 
 function makeVehicleIcon(type = "plane") {
-  const iconPaths = {
-    car: `<path d="M62 58h5c1.7 0 3-1.2 3-3v-8c0-2.6-2-5-4.4-5.5C61.6 40.6 54 39 54 39s-3.8-4-6.4-6.7c-1.4-1.2-3.2-2-5.2-2H28c-1.7 0-3.2 1.2-4 2.6l-4 8.5A11 11 0 0 0 19 45v11c0 1.7 1.2 3 3 3h5" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="33" cy="58" r="5" fill="none" stroke="white" stroke-width="2.5"/><path d="M38 58h16" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"/><circle cx="59" cy="58" r="5" fill="none" stroke="white" stroke-width="2.5"/>`,
-    plane: `<path d="M55.4 60.6 50 40l10.5-10.5C64 26 65.5 20 64 17c-3-1.5-9 0-13.5 4.5L43 29l-24.6-5.4c-1.5-.3-2.7.3-3.3 1.5l-.9 1.5c-.6 1.5-.3 3 .9 3.9L30 40l-6 9H16l-3 3 9 6 6 9 3-3v-8l9-6 10.5 15.9c.9 1.2 2.4 1.5 3.9.9l1.5-.6c1.2-.9 1.8-2.1 1.5-3.6z" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>`,
-    ship: `<path d="M19 66c1.8 1.5 3.6 3 7.5 3 7.5 0 7.5-6 15-6 3.9 0 5.7 1.5 7.5 3 1.8 1.5 3.6 3 7.5 3 7.5 0 7.5-6 15-6 3.9 0 5.7 1.5 7.5 3" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M62.1 63A34.8 34.8 0 0 0 67 45l-27-12-27 12c0 8.7 2.8 16 8.4 23.3" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M61 42V24a6 6 0 0 0-6-6H25a6 6 0 0 0-6 6v18" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M40 33v-9" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"/>`
+  const emojis = {
+    car: "🚗",
+    train: "🚆",
+    bike: "🚲",
+    plane: "✈️",
+    ship: "🚢"
   };
-  const path = iconPaths[type] || iconPaths.plane;
-  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 80 80'>
-    <circle cx='40' cy='40' r='28' fill='%231a1a1a' opacity='0.85'/>
-    <g transform='translate(-4,-4) scale(0.9)'>${path}</g>
+  const emoji = emojis[type] || emojis.plane;
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='84' height='84' viewBox='0 0 84 84'>
+    <circle cx='42' cy='42' r='28' fill='#ffffff' fill-opacity='0.94' stroke='#d7dbe2' stroke-width='1.25'/>
+    <text x='42' y='42' text-anchor='middle' dominant-baseline='central' font-size='28'>${emoji}</text>
   </svg>`;
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
@@ -85,30 +87,40 @@ function getHeading(from, to) {
   return Math.atan2(y, x);
 }
 
+function calcRouteSpanKm(stops) {
+  if (!stops.length) return 0;
+  let minLon = stops[0].lon;
+  let maxLon = stops[0].lon;
+  let minLat = stops[0].lat;
+  let maxLat = stops[0].lat;
+
+  stops.forEach((s) => {
+    minLon = Math.min(minLon, s.lon);
+    maxLon = Math.max(maxLon, s.lon);
+    minLat = Math.min(minLat, s.lat);
+    maxLat = Math.max(maxLat, s.lat);
+  });
+
+  return geodesicKm({ lon: minLon, lat: minLat }, { lon: maxLon, lat: maxLat });
+}
+
+function getCameraRangeBySpanKm(spanKm) {
+  const raw = spanKm * 620;
+  return Cesium.Math.clamp(raw || 300000, 170000, 4800000);
+}
+
 async function buildSegments(stops, legModes) {
   const segments = [];
 
   for (let i = 0; i < stops.length - 1; i += 1) {
     const from = stops[i];
     const to = stops[i + 1];
-    const mode = legModes[i] || "plane";
+    const mode = legModes[i] || "car";
 
     if (mode === "plane") {
       segments.push({
         mode,
         points: buildPlanePath(from, to, 160),
-        km: geodesicKm(from, to)
-      });
-      continue;
-    }
-
-    if (mode === "ship") {
-      segments.push({
-        mode,
-        points: buildPlanePath(from, to, 130).map((point) => {
-          const c = Cesium.Cartographic.fromCartesian(point);
-          return Cesium.Cartesian3.fromRadians(c.longitude, c.latitude, 42000);
-        }),
         km: geodesicKm(from, to)
       });
       continue;
@@ -121,10 +133,23 @@ async function buildSegments(stops, legModes) {
         points: buildRoadPathFromCoords(road.coords),
         km: road.km
       });
+      continue;
     } catch {
+      if (mode === "ship") {
+        segments.push({
+          mode,
+          points: buildPlanePath(from, to, 130).map((point) => {
+            const c = Cesium.Cartographic.fromCartesian(point);
+            return Cesium.Cartesian3.fromRadians(c.longitude, c.latitude, 42000);
+          }),
+          km: geodesicKm(from, to)
+        });
+        continue;
+      }
+
       segments.push({
         mode,
-        points: buildPlanePath(from, to, 120),
+        points: buildPlanePath(from, to, mode === "plane" ? 160 : 120),
         km: geodesicKm(from, to)
       });
     }
@@ -157,15 +182,13 @@ function flattenSegments(segments) {
 export async function createGlobeScene(containerId, stops, legModes = []) {
   const baseLayer = new Cesium.ImageryLayer(
     new Cesium.UrlTemplateImageryProvider({
-      url: "https://services.arcgisonline.com/ArcGIS/rest/services/World_Physical_Map/MapServer/tile/{z}/{y}/{x}",
-      subdomains: ["a", "b", "c", "d"],
-      credit: "Esri",
+      url: "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
       maximumLevel: 19
     })
   );
-  baseLayer.brightness = 1.04;
-  baseLayer.contrast = 0.86;
-  baseLayer.saturation = 0.34;
+  baseLayer.brightness = 1.02;
+  baseLayer.contrast = 0.92;
+  baseLayer.saturation = 0.68;
 
   const viewer = new Cesium.Viewer(containerId, {
     baseLayer,
@@ -206,12 +229,12 @@ export async function createGlobeScene(containerId, stops, legModes = []) {
   viewer.entities.add({
     polyline: {
       positions: new Cesium.CallbackProperty(() => activePositions, false),
-      width: 6,
+      width: 5,
       material: new Cesium.PolylineGlowMaterialProperty({
-        glowPower: 0.2,
-        color: Cesium.Color.fromCssColorString("#555555")
+        glowPower: 0.12,
+        color: Cesium.Color.fromCssColorString("#3a4453")
       }),
-      depthFailMaterial: Cesium.Color.fromCssColorString("#555555")
+      depthFailMaterial: Cesium.Color.fromCssColorString("#3a4453")
     }
   });
 
@@ -266,36 +289,44 @@ export async function createGlobeScene(containerId, stops, legModes = []) {
   const vehicle = viewer.entities.add({
     position: full[0],
     billboard: {
-      image: makeVehicleIcon(legModes[0] || "plane"),
-      width: 50,
-      height: 50,
+      image: makeVehicleIcon(legModes[0] || "car"),
+      width: 46,
+      height: 46,
       disableDepthTestDistance: Number.POSITIVE_INFINITY
     }
   });
 
+  const routeSpanKm = calcRouteSpanKm(stops);
+  const baseRange = getCameraRangeBySpanKm(routeSpanKm);
+  const basePitch = Cesium.Math.toRadians(-47);
+
+  const initialHeading = getHeading(full[0], full[Math.min(4, full.length - 1)]);
+  const stableHeading = Number.isFinite(initialHeading) ? initialHeading : 0;
+
   viewer.camera.setView({
-    destination: toCartesianFromDeg(6, 20, 11800000),
+    destination: toCartesianFromDeg(stops[0].lon, stops[0].lat, baseRange * 1.02),
     orientation: {
-      heading: Cesium.Math.toRadians(6),
-      pitch: Cesium.Math.toRadians(-26),
+      heading: stableHeading,
+      pitch: basePitch,
       roll: 0
     }
   });
 
   let timeline = null;
   let cancelled = false;
-  const fixedHeading = getHeading(full[0], full[Math.min(4, full.length - 1)]);
+  let cameraHeading = stableHeading;
+  let cameraFocus = Cesium.Cartesian3.clone(full[0]);
 
   async function warmupTiles() {
-    const samples = Math.min(14, full.length);
+    const samples = Math.min(8, full.length);
     for (let i = 0; i < samples; i += 1) {
-      const idx = Math.floor((i * (full.length - 1)) / Math.max(samples - 1, 1));
+      const idx = Math.floor((i * Math.max(full.length - 1, 0)) / Math.max(samples * 2, 1));
       const pos = full[idx];
       viewer.camera.setView({
         destination: pos,
         orientation: {
-          heading: fixedHeading,
-          pitch: Cesium.Math.toRadians(-63),
+          heading: cameraHeading,
+          pitch: basePitch,
           roll: 0
         }
       });
@@ -312,17 +343,11 @@ export async function createGlobeScene(containerId, stops, legModes = []) {
     activePositions.length = 0;
     activePositions.push(...full.slice(0, end), pos);
 
-    const next = full[Math.min(end + 1, full.length - 1)];
-    const breathe = Math.sin(tValue * 0.04) * 0.5 + 0.5;
-    const range = 7200000 - breathe * 320000;
-    const pitch = Cesium.Math.toRadians(-40 + breathe * 0.8);
-    viewer.camera.lookAt(pos, new Cesium.HeadingPitchRange(fixedHeading, pitch, range));
+    const lookAhead = full[Math.min(end + 8, full.length - 1)];
+    Cesium.Cartesian3.lerp(cameraFocus, lookAhead, 0.12, cameraFocus);
+    viewer.camera.lookAt(cameraFocus, new Cesium.HeadingPitchRange(cameraHeading, basePitch, baseRange));
 
-    const winA = viewer.scene.cartesianToCanvasCoordinates(pos);
-    const winB = viewer.scene.cartesianToCanvasCoordinates(next);
-    if (winA && winB) {
-      vehicle.billboard.rotation = Math.atan2(winB.y - winA.y, winB.x - winA.x);
-    }
+    vehicle.billboard.rotation = 0;
   }
 
   function buildTimeline(onArrival) {
@@ -335,7 +360,7 @@ export async function createGlobeScene(containerId, stops, legModes = []) {
       let revealed = false;
 
       tl.call(() => {
-        vehicle.billboard.image = makeVehicleIcon(legModes[i] || "plane");
+        vehicle.billboard.image = makeVehicleIcon(legModes[i] || "car");
         const targetIdx = i + 1;
         stopMarkers.forEach((m) => {
           m.point.show = false;
@@ -405,6 +430,9 @@ export async function createGlobeScene(containerId, stops, legModes = []) {
     activePositions.length = 0;
     activePositions.push(full[0]);
     vehicle.position = full[0];
+    cameraHeading = stableHeading;
+    cameraFocus = Cesium.Cartesian3.clone(full[0]);
+    viewer.camera.lookAt(full[0], new Cesium.HeadingPitchRange(cameraHeading, basePitch, baseRange));
     labelEntities.forEach((e) => {
       e.label.show = false;
     });
@@ -450,15 +478,7 @@ export async function createGlobeScene(containerId, stops, legModes = []) {
   }
 
   await warmupTiles();
-  const routeMid = midpoint(full);
-  viewer.camera.lookAt(
-    routeMid,
-    new Cesium.HeadingPitchRange(
-      fixedHeading,
-      Cesium.Math.toRadians(-38),
-      7200000
-    )
-  );
+  viewer.camera.lookAt(full[0], new Cesium.HeadingPitchRange(cameraHeading, basePitch, baseRange));
   viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
 
   return { play, pause, resume, exportFrame, destroy, viewer };

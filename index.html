@@ -32,122 +32,80 @@
       <aside class="sidebar-card">
         <h2>Route Planning</h2>
 
-        <div class="timeline-row">
-          <span class="pin start-pin" aria-hidden="true"></span>
-          <div>
-            <input id="startName" type="text" value="New York, USA" />
+        <div id="routeTimeline">
+          <div class="timeline-row" data-role="start">
+            <span class="pin start-pin" aria-hidden="true"></span>
+            <div class="row-input-wrap">
+              <input type="text" value="New York, USA" data-country="UNITED STATES" data-coord="-74.006,40.7128" />
+            </div>
+          </div>
+
+          <div class="timeline-connector">
+            <div class="connector-line" aria-hidden="true"></div>
+            <button type="button" class="mode-toggle" data-mode="car" aria-label="Transport mode: car">
+              <svg class="icon-car" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path
+                  d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2" />
+                <circle cx="7" cy="17" r="2" />
+                <path d="M9 17h6" />
+                <circle cx="17" cy="17" r="2" />
+              </svg>
+              <svg class="icon-train" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="4" y="3" width="16" height="14" rx="2" />
+                <path d="M4 11h16" />
+                <path d="M8 17l-2 4" />
+                <path d="M16 17l2 4" />
+                <circle cx="9" cy="14" r="1" />
+                <circle cx="15" cy="14" r="1" />
+              </svg>
+              <svg class="icon-bike" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="5.5" cy="17.5" r="3.5" />
+                <circle cx="18.5" cy="17.5" r="3.5" />
+                <path d="M8 17.5 11 11h4l2 6.5" />
+                <path d="M10 11h-2.5" />
+                <path d="M13 11 11 7h3" />
+              </svg>
+              <svg class="icon-plane" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path
+                  d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z" />
+              </svg>
+              <svg class="icon-ship" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path
+                  d="M2 21c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1 .6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1" />
+                <path d="M19.38 20A11.6 11.6 0 0 0 21 14l-9-4-9 4c0 2.9.94 5.34 2.81 7.76" />
+                <path d="M19 13V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v6" />
+                <path d="M12 10v-3" />
+              </svg>
+            </button>
+            <div class="connector-line" aria-hidden="true"></div>
+          </div>
+
+          <div class="timeline-row" data-role="end">
+            <span class="pin end-pin" aria-hidden="true"></span>
+            <div class="row-input-wrap">
+              <input type="text" value="Kizimkazi, Tanzania" data-country="TANZANIA" data-coord="39.512,-6.452" />
+            </div>
           </div>
         </div>
 
-        <div class="timeline-connector">
-          <div class="connector-line" aria-hidden="true"></div>
-          <button type="button" class="mode-toggle" data-select="legMode1" data-mode="plane"
-            aria-label="Transport mode: plane">
-            <svg class="icon-car" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path
-                d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2" />
-              <circle cx="7" cy="17" r="2" />
-              <path d="M9 17h6" />
-              <circle cx="17" cy="17" r="2" />
+        <div id="sidebarActions" class="sidebar-actions">
+          <button id="addDestBtn" class="add-destination" type="button">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M8 12h8" />
+              <path d="M12 8v8" />
             </svg>
-            <svg class="icon-plane" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path
-                d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z" />
-            </svg>
-            <svg class="icon-ship" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path
-                d="M2 21c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1 .6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1" />
-              <path d="M19.38 20A11.6 11.6 0 0 0 21 14l-9-4-9 4c0 2.9.94 5.34 2.81 7.76" />
-              <path d="M19 13V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v6" />
-              <path d="M12 10v-3" />
-            </svg>
+            Add destination
           </button>
-          <div class="connector-line" aria-hidden="true"></div>
+
+          <button id="generateBtn" class="generate-btn" type="button">Generate Route</button>
         </div>
-
-        <div class="timeline-row">
-          <span class="pin mid-pin" aria-hidden="true"></span>
-          <div>
-            <input id="via1Name" type="text" value="Waypoint 1" />
-          </div>
-        </div>
-
-        <div class="timeline-connector">
-          <div class="connector-line" aria-hidden="true"></div>
-          <button type="button" class="mode-toggle" data-select="legMode2" data-mode="plane"
-            aria-label="Transport mode: plane">
-            <svg class="icon-car" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path
-                d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2" />
-              <circle cx="7" cy="17" r="2" />
-              <path d="M9 17h6" />
-              <circle cx="17" cy="17" r="2" />
-            </svg>
-            <svg class="icon-plane" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path
-                d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z" />
-            </svg>
-            <svg class="icon-ship" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path
-                d="M2 21c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1 .6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1" />
-              <path d="M19.38 20A11.6 11.6 0 0 0 21 14l-9-4-9 4c0 2.9.94 5.34 2.81 7.76" />
-              <path d="M19 13V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v6" />
-              <path d="M12 10v-3" />
-            </svg>
-          </button>
-          <div class="connector-line" aria-hidden="true"></div>
-        </div>
-
-        <div class="timeline-row">
-          <span class="pin end-pin" aria-hidden="true"></span>
-          <div>
-            <input id="endName" type="text" value="Kizimkazi, Tanzania" />
-          </div>
-        </div>
-
-        <button class="add-destination" type="button">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10" />
-            <path d="M8 12h8" />
-            <path d="M12 8v8" />
-          </svg>
-          Add destination
-        </button>
-
-        <button id="generateBtn" class="generate-btn" type="button">Generate Route</button>
-
-        <input id="startCountry" class="hidden-field" type="text" value="UNITED STATES" tabindex="-1" />
-        <input id="startCoord" class="hidden-field" type="text" value="-74.006,40.7128" tabindex="-1" />
-        <input id="via1Country" class="hidden-field" type="text" value="" tabindex="-1" />
-        <input id="via1Coord" class="hidden-field" type="text" value="" tabindex="-1" />
-        <input id="via2Name" class="hidden-field" type="text" value="" tabindex="-1" />
-        <input id="via2Country" class="hidden-field" type="text" value="" tabindex="-1" />
-        <input id="via2Coord" class="hidden-field" type="text" value="" tabindex="-1" />
-        <input id="endCountry" class="hidden-field" type="text" value="TANZANIA" tabindex="-1" />
-        <input id="endCoord" class="hidden-field" type="text" value="39.512,-6.452" tabindex="-1" />
-
-        <select id="legMode1" class="hidden-field" aria-hidden="true" tabindex="-1">
-          <option value="plane" selected>plane</option>
-          <option value="car">car</option>
-          <option value="ship">ship</option>
-        </select>
-        <select id="legMode2" class="hidden-field" aria-hidden="true" tabindex="-1">
-          <option value="plane" selected>plane</option>
-          <option value="car">car</option>
-          <option value="ship">ship</option>
-        </select>
-        <select id="legMode3" class="hidden-field" aria-hidden="true" tabindex="-1">
-          <option value="plane" selected>plane</option>
-          <option value="car">car</option>
-          <option value="ship">ship</option>
-        </select>
       </aside>
 
       <section class="map-section">
