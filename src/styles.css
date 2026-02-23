@@ -287,6 +287,8 @@ body,
   align-items: center;
   margin-left: 5px;
   gap: 0;
+  position: relative;
+  overflow: visible;
 }
 
 .connector-line {
@@ -348,6 +350,62 @@ body,
 
 .mode-toggle[data-mode="ship"] .icon-ship {
   display: block;
+}
+
+.mode-toggle[data-mode="walk"] .icon-walk {
+  display: block;
+}
+
+.mode-picker {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translateY(-50%) translateX(28px) scale(0.92);
+  opacity: 0;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: var(--shadow-md);
+  transition: opacity 180ms ease, transform 180ms ease;
+  z-index: 30;
+}
+
+.mode-picker.show {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(-50%) translateX(36px) scale(1);
+}
+
+.mode-option {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  line-height: 1;
+  transition: transform var(--transition), background var(--transition), border-color var(--transition);
+}
+
+.mode-option:hover {
+  background: var(--accent-subtle);
+  transform: scale(1.06);
+}
+
+.mode-option.active {
+  border-color: var(--input-border);
+  background: rgba(26, 26, 26, 0.06);
 }
 
 /* ─── Inputs ─── */
@@ -586,6 +644,10 @@ body,
   width: 14px;
   height: 14px;
   flex-shrink: 0;
+}
+
+.basemap-btn {
+  font-weight: 600;
 }
 
 /* ─── Utility ─── */

@@ -1,6 +1,8 @@
 import * as Cesium from "cesium";
 import gsap from "gsap";
 
+const ROUTE_BASE_HEIGHT = 12000;
+
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -15,7 +17,8 @@ function makeVehicleIcon(type = "plane") {
     train: "🚆",
     bike: "🚲",
     plane: "✈️",
-    ship: "🚢"
+    ship: "🚢",
+    walk: "🚶"
   };
   const emoji = emojis[type] || emojis.plane;
   const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='84' height='84' viewBox='0 0 84 84'>
@@ -35,12 +38,14 @@ function buildPlanePath(from, to, steps = 150) {
   const start = Cesium.Cartographic.fromDegrees(from.lon, from.lat, 0);
   const end = Cesium.Cartographic.fromDegrees(to.lon, to.lat, 0);
   const geodesic = new Cesium.EllipsoidGeodesic(start, end);
+  const distanceKm = geodesic.surfaceDistance / 1000;
+  const arcHeight = Cesium.Math.clamp(distanceKm * 45, 14000, 120000);
   const points = [];
 
   for (let i = 0; i <= steps; i += 1) {
     const t = i / steps;
     const p = geodesic.interpolateUsingFraction(t);
-    p.height = 110000 + 760000 * Math.sin(Math.PI * t);
+    p.height = ROUTE_BASE_HEIGHT + arcHeight * Math.sin(Math.PI * t);
     points.push(Cesium.Cartesian3.fromRadians(p.longitude, p.latitude, p.height));
   }
 
@@ -48,7 +53,7 @@ function buildPlanePath(from, to, steps = 150) {
 }
 
 function buildRoadPathFromCoords(coords) {
-  return coords.map(([lon, lat]) => toCartesianFromDeg(lon, lat, 9000));
+  return coords.map(([lon, lat]) => toCartesianFromDeg(lon, lat, ROUTE_BASE_HEIGHT));
 }
 
 async function fetchRoadRoute(from, to) {
@@ -109,13 +114,68 @@ function getCameraRangeBySpanKm(spanKm) {
   return Cesium.Math.clamp(raw || 300000, 170000, 4800000);
 }
 
+function getCameraRangeBySegmentKm(segmentKm) {
+  const raw = segmentKm * 520;
+  return Cesium.Math.clamp(raw || 240000, 140000, 2400000);
+}
+
+const BASEMAP_CONFIG = {
+  satellite: {
+    label: "Satellite",
+    url: "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    maximumLevel: 7,
+    brightness: 1.02,
+    contrast: 0.92,
+    saturation: 0.68
+  },
+  light: {
+    label: "Light",
+    url: "https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+    maximumLevel: 6,
+    brightness: 1.03,
+    contrast: 0.95,
+    saturation: 0.15
+  },
+  dark: {
+    label: "Dark",
+    url: "https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+    maximumLevel: 6,
+    brightness: 0.88,
+    contrast: 1.05,
+    saturation: 0.2
+  },
+  terrain: {
+    label: "Terrain",
+    url: "https://services.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}",
+    maximumLevel: 7,
+    brightness: 1,
+    contrast: 0.98,
+    saturation: 0.72
+  }
+};
+
+function createBaseLayer(basemapKey = "satellite") {
+  const key = Object.hasOwn(BASEMAP_CONFIG, basemapKey) ? basemapKey : "satellite";
+  const config = BASEMAP_CONFIG[key];
+  const layer = new Cesium.ImageryLayer(
+    new Cesium.UrlTemplateImageryProvider({
+      url: config.url,
+      maximumLevel: config.maximumLevel
+    })
+  );
+  layer.brightness = config.brightness;
+  layer.contrast = config.contrast;
+  layer.saturation = config.saturation;
+  return { layer, key };
+}
+
 async function buildSegments(stops, legModes) {
   const segments = [];
 
   for (let i = 0; i < stops.length - 1; i += 1) {
     const from = stops[i];
     const to = stops[i + 1];
-    const mode = legModes[i] || "car";
+    const mode = legModes[i] || "plane";
 
     if (mode === "plane") {
       segments.push({
@@ -140,7 +200,7 @@ async function buildSegments(stops, legModes) {
           mode,
           points: buildPlanePath(from, to, 130).map((point) => {
             const c = Cesium.Cartographic.fromCartesian(point);
-            return Cesium.Cartesian3.fromRadians(c.longitude, c.latitude, 42000);
+            return Cesium.Cartesian3.fromRadians(c.longitude, c.latitude, ROUTE_BASE_HEIGHT);
           }),
           km: geodesicKm(from, to)
         });
@@ -179,16 +239,9 @@ function flattenSegments(segments) {
   return { full, ranges };
 }
 
-export async function createGlobeScene(containerId, stops, legModes = []) {
-  const baseLayer = new Cesium.ImageryLayer(
-    new Cesium.UrlTemplateImageryProvider({
-      url: "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-      maximumLevel: 19
-    })
-  );
-  baseLayer.brightness = 1.02;
-  baseLayer.contrast = 0.92;
-  baseLayer.saturation = 0.68;
+export async function createGlobeScene(containerId, stops, legModes = [], options = {}) {
+  const initialBasemapKey = options.basemap || "satellite";
+  let { layer: baseLayer, key: currentBasemap } = createBaseLayer(initialBasemapKey);
 
   const viewer = new Cesium.Viewer(containerId, {
     baseLayer,
@@ -207,13 +260,14 @@ export async function createGlobeScene(containerId, stops, legModes = []) {
     msaaSamples: 4
   });
 
-  viewer.resolutionScale = Math.min(window.devicePixelRatio || 1, 2);
+  viewer.resolutionScale = 1;
   viewer.scene.fxaa = true;
   viewer.scene.postProcessStages.fxaa.enabled = true;
   viewer.scene.globe.enableLighting = true;
-  viewer.scene.globe.maximumScreenSpaceError = 1;
+  viewer.scene.globe.maximumScreenSpaceError = 6;
   viewer.scene.globe.preloadAncestors = true;
   viewer.scene.globe.preloadSiblings = true;
+  viewer.scene.globe.loadingDescendantLimit = 0;
   viewer.scene.globe.tileCacheSize = 500;
   viewer.scene.backgroundColor = Cesium.Color.fromCssColorString("#f5f4f2");
   viewer.scene.skyBox.show = false;
@@ -289,7 +343,7 @@ export async function createGlobeScene(containerId, stops, legModes = []) {
   const vehicle = viewer.entities.add({
     position: full[0],
     billboard: {
-      image: makeVehicleIcon(legModes[0] || "car"),
+      image: makeVehicleIcon(legModes[0] || "plane"),
       width: 46,
       height: 46,
       disableDepthTestDistance: Number.POSITIVE_INFINITY
@@ -316,23 +370,37 @@ export async function createGlobeScene(containerId, stops, legModes = []) {
   let cancelled = false;
   let cameraHeading = stableHeading;
   let cameraFocus = Cesium.Cartesian3.clone(full[0]);
+  let cameraRangeCurrent = baseRange;
+  let cameraRangeTarget = baseRange;
+
+  async function renderAndWait(frames = 2) {
+    for (let i = 0; i < frames; i += 1) {
+      viewer.scene.requestRender();
+      await wait(16);
+    }
+  }
 
   async function warmupTiles() {
-    const samples = Math.min(8, full.length);
-    for (let i = 0; i < samples; i += 1) {
-      const idx = Math.floor((i * Math.max(full.length - 1, 0)) / Math.max(samples * 2, 1));
-      const pos = full[idx];
-      viewer.camera.setView({
-        destination: pos,
-        orientation: {
-          heading: cameraHeading,
-          pitch: basePitch,
-          roll: 0
-        }
-      });
-      viewer.scene.requestRender();
-      await wait(18);
+    const sampleCount = Cesium.Math.clamp(Math.ceil(full.length / 18), 16, 72);
+    const sampled = [];
+
+    for (let i = 0; i < sampleCount; i += 1) {
+      const idx = Math.floor((i * Math.max(full.length - 1, 0)) / Math.max(sampleCount - 1, 1));
+      sampled.push(full[idx]);
     }
+
+    const passes = [sampled, [...sampled].reverse()];
+    for (const pass of passes) {
+      for (const pos of pass) {
+        viewer.camera.lookAt(pos, new Cesium.HeadingPitchRange(cameraHeading, basePitch, cameraRangeCurrent));
+        await renderAndWait(2);
+      }
+    }
+
+    cameraFocus = Cesium.Cartesian3.clone(full[0]);
+    viewer.camera.lookAt(full[0], new Cesium.HeadingPitchRange(cameraHeading, basePitch, cameraRangeCurrent));
+    await renderAndWait(3);
+    viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
   }
 
   function updateFrame(tValue) {
@@ -343,11 +411,17 @@ export async function createGlobeScene(containerId, stops, legModes = []) {
     activePositions.length = 0;
     activePositions.push(...full.slice(0, end), pos);
 
-    const lookAhead = full[Math.min(end + 8, full.length - 1)];
-    Cesium.Cartesian3.lerp(cameraFocus, lookAhead, 0.12, cameraFocus);
-    viewer.camera.lookAt(cameraFocus, new Cesium.HeadingPitchRange(cameraHeading, basePitch, baseRange));
-
-    vehicle.billboard.rotation = 0;
+    const lookAheadT = Math.min(tValue + 8, full.length - 1);
+    const lookAhead = lerpPosition(full, lookAheadT);
+    Cesium.Cartesian3.lerp(cameraFocus, lookAhead, 0.16, cameraFocus);
+    cameraRangeCurrent = Cesium.Math.lerp(cameraRangeCurrent, cameraRangeTarget, 0.08);
+    viewer.camera.lookAt(cameraFocus, new Cesium.HeadingPitchRange(cameraHeading, basePitch, cameraRangeCurrent));
+    const nextT = Math.min(tValue + 1, full.length - 1);
+    const nextPos = lerpPosition(full, nextT);
+    const pathHeading = getHeading(pos, nextPos);
+    if (Number.isFinite(pathHeading)) {
+      vehicle.billboard.rotation = -(pathHeading - cameraHeading);
+    }
   }
 
   function buildTimeline(onArrival) {
@@ -360,7 +434,8 @@ export async function createGlobeScene(containerId, stops, legModes = []) {
       let revealed = false;
 
       tl.call(() => {
-        vehicle.billboard.image = makeVehicleIcon(legModes[i] || "car");
+        vehicle.billboard.image = makeVehicleIcon(legModes[i] || "plane");
+        cameraRangeTarget = getCameraRangeBySegmentKm(segments[i].km);
         const targetIdx = i + 1;
         stopMarkers.forEach((m) => {
           m.point.show = false;
@@ -380,8 +455,13 @@ export async function createGlobeScene(containerId, stops, legModes = []) {
 
       tl.to(state, {
         t: end,
-        duration: 3.35,
-        ease: "power2.inOut",
+        duration: (() => {
+          const pointCount = Math.max(end - start, 1);
+          const durationByDistance = 1.2 + Math.sqrt(Math.max(segments[i].km, 1)) * 0.28;
+          const durationByPoints = pointCount / 140;
+          return Cesium.Math.clamp(Math.max(durationByDistance, durationByPoints), 3.2, 8.6);
+        })(),
+        ease: "none",
         onUpdate: () => {
           if (cancelled) return;
           updateFrame(state.t);
@@ -432,7 +512,9 @@ export async function createGlobeScene(containerId, stops, legModes = []) {
     vehicle.position = full[0];
     cameraHeading = stableHeading;
     cameraFocus = Cesium.Cartesian3.clone(full[0]);
-    viewer.camera.lookAt(full[0], new Cesium.HeadingPitchRange(cameraHeading, basePitch, baseRange));
+    cameraRangeCurrent = baseRange;
+    cameraRangeTarget = baseRange;
+    viewer.camera.lookAt(full[0], new Cesium.HeadingPitchRange(cameraHeading, basePitch, cameraRangeCurrent));
     labelEntities.forEach((e) => {
       e.label.show = false;
     });
@@ -471,15 +553,29 @@ export async function createGlobeScene(containerId, stops, legModes = []) {
     return viewer.canvas.toDataURL("image/png");
   }
 
+  function setBasemap(nextBasemap) {
+    const { layer: nextLayer, key } = createBaseLayer(nextBasemap);
+    if (key === currentBasemap) return currentBasemap;
+    viewer.imageryLayers.remove(baseLayer, true);
+    viewer.imageryLayers.add(nextLayer, 0);
+    baseLayer = nextLayer;
+    currentBasemap = key;
+    return currentBasemap;
+  }
+
+  function getBasemap() {
+    return currentBasemap;
+  }
+
   function destroy() {
     cancelled = true;
     timeline?.kill();
     viewer.destroy();
   }
 
-  await warmupTiles();
-  viewer.camera.lookAt(full[0], new Cesium.HeadingPitchRange(cameraHeading, basePitch, baseRange));
+  await renderAndWait(2);
+  viewer.camera.lookAt(full[0], new Cesium.HeadingPitchRange(cameraHeading, basePitch, cameraRangeCurrent));
   viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
 
-  return { play, pause, resume, exportFrame, destroy, viewer };
+  return { play, pause, resume, exportFrame, setBasemap, getBasemap, destroy, viewer };
 }

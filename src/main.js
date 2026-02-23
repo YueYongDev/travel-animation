@@ -5,6 +5,7 @@ import { createGlobeScene } from "./globeScene";
 const playBtn = document.getElementById("playBtn");
 const pauseBtn = document.getElementById("pauseBtn");
 const exportBtn = document.getElementById("exportBtn");
+const basemapBtn = document.getElementById("basemapBtn");
 const generateBtn = document.getElementById("generateBtn");
 const addDestBtn = document.getElementById("addDestBtn");
 const sidebarActions = document.getElementById("sidebarActions");
@@ -24,13 +25,31 @@ let building = false;
 let arrivalTarget = null;
 let detachArrivalTracker = null;
 
-const MODES = ["car", "train", "bike", "plane", "ship"];
+const MODES = ["plane", "train", "car", "ship", "bike", "walk"];
+const MODE_EMOJI = {
+  plane: "✈️",
+  train: "🚆",
+  car: "🚗",
+  ship: "🚢",
+  bike: "🚲",
+  walk: "🚶"
+};
 const geocodeCache = new Map();
 const suggestionCache = new Map();
 const inputSearchState = new WeakMap();
 let draggedRow = null;
 let dropRow = null;
 let dropPosition = "after";
+const BASEMAPS = ["satellite", "light", "dark", "terrain"];
+const BASEMAP_LABELS = {
+  satellite: "卫星",
+  light: "浅色",
+  dark: "深色",
+  terrain: "地形"
+};
+let activeBasemap = "satellite";
+let latestPlaybackBlob = null;
+let latestPlaybackMimeType = "";
 
 function updateSidebarOverflowState() {
   if (!sidebarCard || !routeTimeline || !sidebarActions) return;
@@ -65,9 +84,63 @@ function initSidebarOverflowState() {
 }
 
 function syncModeButton(btn) {
-  const mode = MODES.includes(btn.dataset.mode) ? btn.dataset.mode : "car";
+  const mode = MODES.includes(btn.dataset.mode) ? btn.dataset.mode : "plane";
   btn.dataset.mode = mode;
   btn.setAttribute("aria-label", `Transport mode: ${mode}`);
+  btn.setAttribute("aria-expanded", "false");
+  ensureModePicker(btn);
+  syncModePickerSelection(btn);
+}
+
+function ensureModePicker(btn) {
+  const connector = btn.closest(".timeline-connector");
+  if (!connector) return null;
+
+  let picker = connector.querySelector(".mode-picker");
+  if (!picker) {
+    picker = document.createElement("div");
+    picker.className = "mode-picker";
+    picker.setAttribute("role", "menu");
+    picker.setAttribute("aria-hidden", "true");
+    picker.innerHTML = MODES.map(
+      (mode) => `
+        <button type="button" class="mode-option" data-mode="${mode}" role="menuitemradio" aria-checked="false" aria-label="${mode}">
+          <span class="mode-option-emoji" aria-hidden="true">${MODE_EMOJI[mode] || "✈️"}</span>
+        </button>
+      `
+    ).join("");
+    connector.appendChild(picker);
+  }
+  return picker;
+}
+
+function syncModePickerSelection(btn) {
+  const picker = ensureModePicker(btn);
+  if (!picker) return;
+  const current = MODES.includes(btn.dataset.mode) ? btn.dataset.mode : "plane";
+  picker.querySelectorAll(".mode-option").forEach((option) => {
+    const active = option.dataset.mode === current;
+    option.classList.toggle("active", active);
+    option.setAttribute("aria-checked", active ? "true" : "false");
+  });
+}
+
+function closeAllModePickers(exceptConnector = null) {
+  document.querySelectorAll(".timeline-connector .mode-picker.show").forEach((picker) => {
+    const connector = picker.closest(".timeline-connector");
+    if (exceptConnector && connector === exceptConnector) return;
+    picker.classList.remove("show");
+    picker.setAttribute("aria-hidden", "true");
+    const toggle = connector?.querySelector(".mode-toggle");
+    if (toggle) toggle.setAttribute("aria-expanded", "false");
+  });
+}
+
+function setModeForToggle(toggle, mode) {
+  const next = MODES.includes(mode) ? mode : "plane";
+  toggle.dataset.mode = next;
+  toggle.setAttribute("aria-label", `Transport mode: ${next}`);
+  syncModePickerSelection(toggle);
 }
 
 function initModeToggles() {
@@ -75,15 +148,39 @@ function initModeToggles() {
 
   if (routeTimeline) {
     routeTimeline.addEventListener("click", (event) => {
+      const option = event.target.closest(".mode-option");
+      if (option) {
+        const connector = option.closest(".timeline-connector");
+        const toggle = connector?.querySelector(".mode-toggle");
+        if (toggle) setModeForToggle(toggle, option.dataset.mode);
+        if (connector) closeAllModePickers(connector);
+        return;
+      }
+
       const btn = event.target.closest(".mode-toggle");
       if (!btn) return;
-      const current = btn.dataset.mode;
-      const idx = MODES.indexOf(current);
-      const next = MODES[(idx + 1) % MODES.length];
-      btn.dataset.mode = next;
-      btn.setAttribute("aria-label", `Transport mode: ${next}`);
+      event.preventDefault();
+      const connector = btn.closest(".timeline-connector");
+      const picker = ensureModePicker(btn);
+      if (!connector || !picker) return;
+
+      const willOpen = !picker.classList.contains("show");
+      closeAllModePickers(connector);
+      picker.classList.toggle("show", willOpen);
+      picker.setAttribute("aria-hidden", willOpen ? "false" : "true");
+      btn.setAttribute("aria-expanded", willOpen ? "true" : "false");
     });
   }
+
+  document.addEventListener("click", (event) => {
+    if (event.target.closest(".timeline-connector")) return;
+    closeAllModePickers();
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    closeAllModePickers();
+  });
 
   modeToggles.forEach((btn) => {
     const selectId = btn.dataset.select;
@@ -91,16 +188,14 @@ function initModeToggles() {
     if (!selectEl) return;
 
     // Sync initial state
-    const initial = selectEl.value || "car";
-    btn.dataset.mode = initial;
-    btn.setAttribute("aria-label", `Transport mode: ${initial}`);
+    const initial = selectEl.value || "plane";
+    setModeForToggle(btn, initial);
 
     btn.addEventListener("click", () => {
       const current = btn.dataset.mode;
       const idx = MODES.indexOf(current);
       const next = MODES[(idx + 1) % MODES.length];
-      btn.dataset.mode = next;
-      btn.setAttribute("aria-label", `Transport mode: ${next}`);
+      setModeForToggle(btn, next);
       selectEl.value = next;
     });
   });
@@ -434,9 +529,9 @@ function updateArrivalCardPosition() {
 
 function collectLegModes(legCount) {
   const modes = Array.from(routeTimeline?.querySelectorAll(".timeline-connector .mode-toggle") || []).map(
-    (button) => (MODES.includes(button.dataset.mode) ? button.dataset.mode : "car")
+    (button) => (MODES.includes(button.dataset.mode) ? button.dataset.mode : "plane")
   );
-  while (modes.length < legCount) modes.push("car");
+  while (modes.length < legCount) modes.push("plane");
   return modes.slice(0, legCount);
 }
 
@@ -601,13 +696,10 @@ function createTimelineConnector() {
   connector.className = "timeline-connector";
   connector.innerHTML = `
     <div class="connector-line" aria-hidden="true"></div>
-    <button type="button" class="mode-toggle" data-mode="car" aria-label="Transport mode: car">
-      <svg class="icon-car" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+    <button type="button" class="mode-toggle" data-mode="plane" aria-label="Transport mode: plane">
+      <svg class="icon-plane" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
         fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2" />
-        <circle cx="7" cy="17" r="2" />
-        <path d="M9 17h6" />
-        <circle cx="17" cy="17" r="2" />
+        <path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z" />
       </svg>
       <svg class="icon-train" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
         fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -618,6 +710,20 @@ function createTimelineConnector() {
         <circle cx="9" cy="14" r="1" />
         <circle cx="15" cy="14" r="1" />
       </svg>
+      <svg class="icon-car" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2" />
+        <circle cx="7" cy="17" r="2" />
+        <path d="M9 17h6" />
+        <circle cx="17" cy="17" r="2" />
+      </svg>
+      <svg class="icon-ship" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M2 21c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1 .6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1" />
+        <path d="M19.38 20A11.6 11.6 0 0 0 21 14l-9-4-9 4c0 2.9.94 5.34 2.81 7.76" />
+        <path d="M19 13V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v6" />
+        <path d="M12 10v-3" />
+      </svg>
       <svg class="icon-bike" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
         fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="5.5" cy="17.5" r="3.5" />
@@ -626,16 +732,12 @@ function createTimelineConnector() {
         <path d="M10 11h-2.5" />
         <path d="M13 11 11 7h3" />
       </svg>
-      <svg class="icon-plane" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+      <svg class="icon-walk" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
         fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z" />
-      </svg>
-      <svg class="icon-ship" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M2 21c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1 .6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1" />
-        <path d="M19.38 20A11.6 11.6 0 0 0 21 14l-9-4-9 4c0 2.9.94 5.34 2.81 7.76" />
-        <path d="M19 13V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v6" />
-        <path d="M12 10v-3" />
+        <circle cx="12" cy="4" r="1.8" />
+        <path d="M12 6.2l-2 3.6 2.6 1.5 1.7 3.6" />
+        <path d="M10.5 14.8l-1.8 4.2" />
+        <path d="M12.6 11.3l3-2.2" />
       </svg>
     </button>
     <div class="connector-line" aria-hidden="true"></div>
@@ -679,7 +781,7 @@ async function initScene(stops, legModes) {
     detachArrivalTracker = null;
   }
   if (scene) scene.destroy();
-  scene = await createGlobeScene("globeContainer", stops, legModes);
+  scene = await createGlobeScene("globeContainer", stops, legModes, { basemap: activeBasemap });
   const viewerRef = scene.viewer;
   const onPostRender = () => updateArrivalCardPosition();
   viewerRef.scene.postRender.addEventListener(onPostRender);
@@ -688,11 +790,31 @@ async function initScene(stops, legModes) {
   };
 
   hideArrival();
+  latestPlaybackBlob = null;
+  latestPlaybackMimeType = "";
   building = false;
   generateBtn.disabled = false;
   generateBtn.textContent = "Generate Route";
   paused = false;
   pauseBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> Pause';
+}
+
+function updateBasemapButtonUI() {
+  if (!basemapBtn) return;
+  const label = BASEMAP_LABELS[activeBasemap] || "卫星";
+  basemapBtn.textContent = `底图 · ${label}`;
+  basemapBtn.dataset.basemap = activeBasemap;
+}
+
+function cycleBasemap() {
+  const idx = BASEMAPS.indexOf(activeBasemap);
+  const next = BASEMAPS[(idx + 1) % BASEMAPS.length];
+  activeBasemap = next;
+  updateBasemapButtonUI();
+  if (scene?.setBasemap) {
+    activeBasemap = scene.setBasemap(next);
+    updateBasemapButtonUI();
+  }
 }
 
 async function run() {
@@ -702,12 +824,49 @@ async function run() {
   playBtn.disabled = true;
   playBtn.textContent = "Playing…";
 
+  const canvas = scene.viewer?.canvas;
+  const mimeType = getSupportedVideoMimeType();
+  const canRecord = Boolean(canvas && typeof canvas.captureStream === "function" && mimeType);
+  let recorder = null;
+  let stopRecordingPromise = null;
+  let recordingChunks = null;
+
+  if (canRecord) {
+    const stream = canvas.captureStream(60);
+    recordingChunks = [];
+    recorder = new MediaRecorder(stream, {
+      mimeType,
+      videoBitsPerSecond: 8_000_000
+    });
+    recorder.ondataavailable = (event) => {
+      if (event.data && event.data.size > 0) recordingChunks.push(event.data);
+    };
+    stopRecordingPromise = new Promise((resolve, reject) => {
+      recorder.onerror = () => reject(new Error("自动录制失败"));
+      recorder.onstop = () => resolve();
+    });
+    recorder.start(120);
+  }
+
   try {
     await scene.play((payload) => {
       const stop = payload?.stop;
       if (!stop) return;
       showArrival(stop, payload.km);
     });
+
+    if (recorder && recorder.state !== "inactive") {
+      recorder.stop();
+      await stopRecordingPromise;
+      latestPlaybackBlob = new Blob(recordingChunks, { type: mimeType });
+      latestPlaybackMimeType = mimeType;
+    }
+  } catch (error) {
+    if (recorder && recorder.state !== "inactive") recorder.stop();
+    latestPlaybackBlob = null;
+    latestPlaybackMimeType = "";
+    // eslint-disable-next-line no-alert
+    alert(error.message || "播放失败，请重试。");
   } finally {
     playing = false;
     paused = false;
@@ -719,8 +878,18 @@ async function run() {
 
 function getSupportedVideoMimeType() {
   if (typeof MediaRecorder === "undefined") return "";
-  const candidates = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
+  const candidates = [
+    "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
+    "video/mp4",
+    "video/webm;codecs=vp9",
+    "video/webm;codecs=vp8",
+    "video/webm"
+  ];
   return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || "";
+}
+
+function getVideoFileExtension(mimeType) {
+  return mimeType.includes("mp4") ? "mp4" : "webm";
 }
 
 function downloadBlob(blob, filename) {
@@ -736,10 +905,8 @@ function downloadBlob(blob, filename) {
 
 async function exportVideo() {
   if (!scene || playing || building) return;
-  const canvas = scene.viewer?.canvas;
   const mimeType = getSupportedVideoMimeType();
-
-  if (!canvas || typeof canvas.captureStream !== "function" || !mimeType) {
+  if (!mimeType) {
     const url = scene.exportFrame();
     const a = document.createElement("a");
     a.href = url;
@@ -752,61 +919,29 @@ async function exportVideo() {
     return;
   }
 
+  if (!latestPlaybackBlob) {
+    // eslint-disable-next-line no-alert
+    alert("请先播放一次动画，再导出视频。");
+    return;
+  }
+
   exportBtn.disabled = true;
   exportBtn.textContent = "Exporting…";
-  playBtn.disabled = true;
-  pauseBtn.disabled = true;
-
-  const stream = canvas.captureStream(60);
-  const chunks = [];
-  const recorder = new MediaRecorder(stream, {
-    mimeType,
-    videoBitsPerSecond: 8_000_000
-  });
-
-  recorder.ondataavailable = (event) => {
-    if (event.data && event.data.size > 0) chunks.push(event.data);
-  };
-
-  const done = new Promise((resolve, reject) => {
-    recorder.onerror = () => reject(new Error("视频导出失败"));
-    recorder.onstop = () => {
-      const blob = new Blob(chunks, { type: mimeType });
-      resolve(blob);
-    };
-  });
-
-  hideArrival();
-  playing = true;
-  paused = false;
-  playBtn.textContent = "Playing…";
-  pauseBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> Pause';
 
   try {
-    recorder.start(120);
-    await scene.play((payload) => {
-      const stop = payload?.stop;
-      if (!stop) return;
-      showArrival(stop, payload.km);
-    });
-    await new Promise((resolve) => setTimeout(resolve, 120));
-    recorder.stop();
-
-    const blob = await done;
-    downloadBlob(blob, `trailframe-${Date.now()}.webm`);
+    const usedType = latestPlaybackMimeType || mimeType;
+    const ext = getVideoFileExtension(usedType);
+    downloadBlob(latestPlaybackBlob, `trailframe-${Date.now()}.${ext}`);
+    if (ext !== "mp4") {
+      // eslint-disable-next-line no-alert
+      alert("当前浏览器不支持直接导出 MP4，已导出 WebM。");
+    }
   } catch (error) {
-    if (recorder.state !== "inactive") recorder.stop();
     // eslint-disable-next-line no-alert
     alert(error.message || "视频导出失败，请重试。");
   } finally {
-    playing = false;
-    paused = false;
     exportBtn.disabled = false;
-    pauseBtn.disabled = false;
-    playBtn.disabled = false;
     exportBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Export';
-    playBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg> Replay';
-    pauseBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> Pause';
   }
 }
 
@@ -815,7 +950,7 @@ generateBtn.addEventListener("click", async () => {
     const stops = await collectStops();
     const legModes = collectLegModes(stops.length - 1);
     await initScene(stops, legModes);
-    playBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="6 3 20 12 6 21 6 3"/></svg> Play';
+    await run();
   } catch (error) {
     building = false;
     generateBtn.disabled = false;
@@ -841,6 +976,7 @@ pauseBtn.addEventListener("click", () => {
 });
 
 exportBtn.addEventListener("click", exportVideo);
+basemapBtn?.addEventListener("click", cycleBasemap);
 
 addDestBtn?.addEventListener("click", addDestinationRow);
 
@@ -851,11 +987,12 @@ initSidebarOverflowState();
 window.addEventListener("beforeunload", () => scene?.destroy());
 window.addEventListener("beforeunload", () => detachArrivalTracker?.());
 initModeToggles();
+updateBasemapButtonUI();
 
 initScene(
   [
     { city: "NEW YORK", country: "UNITED STATES", lon: -74.006, lat: 40.7128 },
     { city: "KIZIMKAZI", country: "TANZANIA", lon: 39.512, lat: -6.452 }
   ],
-  ["car"]
+  ["plane"]
 );
