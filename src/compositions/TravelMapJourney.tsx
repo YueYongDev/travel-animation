@@ -55,6 +55,12 @@ type AnimationState = {
   zoom: number;
 };
 
+type TravelState = {
+  center: Coordinate;
+  pitch: number;
+  zoom: number;
+};
+
 const HIDE_FEATURES = [
   "showRoadsAndTransit",
   "showRoads",
@@ -74,6 +80,9 @@ const HIDE_FEATURES = [
   "show3dLandmarks",
   "show3dFacades",
 ] as const;
+
+const WAYPOINT_HANDOFF_FRAMES = 8;
+const WAYPOINT_ROUTE_START_PROGRESS = 0.04;
 
 const mapboxToken = process.env.REMOTION_MAPBOX_TOKEN;
 
@@ -441,6 +450,68 @@ const getTravelCameraCenter = (
   );
 };
 
+const getTravelEasing = (segmentIndex: number, segmentCount: number) => {
+  if (segmentCount === 1) {
+    return Easing.inOut(Easing.sin);
+  }
+
+  if (segmentIndex === segmentCount - 1) {
+    return Easing.out(Easing.sin);
+  }
+
+  return Easing.linear;
+};
+
+const getTravelProgress = (
+  frame: number,
+  segment: JourneySegment,
+  segmentIndex: number,
+  segmentCount: number,
+) => {
+  const lastTravelFrame = Math.max(segment.travelStart, segment.travelEnd - 1);
+  const startProgress =
+    segmentIndex === 0 ? 0 : WAYPOINT_ROUTE_START_PROGRESS;
+
+  return interpolate(
+    frame,
+    [segment.travelStart, lastTravelFrame],
+    [startProgress, 1],
+    {
+      easing: getTravelEasing(segmentIndex, segmentCount),
+      extrapolateLeft: "clamp",
+      extrapolateRight: "clamp",
+    },
+  );
+};
+
+const getTravelState = (
+  segment: JourneySegment,
+  segmentIndex: number,
+  segmentCount: number,
+  progress: number,
+): TravelState => {
+  const travelStartPitch = segmentIndex === 0 ? segment.profile.travelPitch : 0;
+  const travelPitchWave =
+    segmentIndex === 0
+      ? segment.profile.midPitchWave
+      : Math.max(segment.profile.midPitchWave * 0.7, 1.2);
+
+  return {
+    center: getTravelCameraCenter(segment, progress),
+    pitch: Math.max(
+      0,
+      lerp(travelStartPitch, 0, progress) +
+        Math.sin(Math.PI * progress) * travelPitchWave,
+    ),
+    zoom: clamp(
+      lerp(segment.travelStartZoom, segment.arrivalZoom, progress) +
+        Math.sin(Math.PI * progress) * segment.profile.midZoomWave,
+      2.1,
+      11.6,
+    ),
+  };
+};
+
 const MissingTokenMessage = () => {
   return (
     <AbsoluteFill
@@ -549,33 +620,70 @@ const getAnimationState = (
     }
 
     if (frame < segment.travelEnd) {
-      const phase = interpolate(frame, [segment.travelStart, segment.travelEnd], [0, 1], {
-        easing: Easing.inOut(Easing.sin),
-        extrapolateLeft: "clamp",
-        extrapolateRight: "clamp",
-      });
-      const travelStartPitch = index === 0 ? segment.profile.travelPitch : 0;
-      const travelPitchWave =
-        index === 0
-          ? segment.profile.midPitchWave
-          : Math.max(segment.profile.midPitchWave * 0.7, 1.2);
+      const phase = getTravelProgress(frame, segment, index, segments.length);
+      const currentTravelState = getTravelState(
+        segment,
+        index,
+        segments.length,
+        phase,
+      );
+
+      if (index < segments.length - 1) {
+        const handoffStartFrame = Math.max(
+          segment.travelStart,
+          segment.travelEnd - WAYPOINT_HANDOFF_FRAMES,
+        );
+
+        if (frame >= handoffStartFrame) {
+          const handoff = interpolate(
+            frame,
+            [handoffStartFrame, segment.travelEnd - 1],
+            [0, 1],
+            {
+              easing: Easing.inOut(Easing.sin),
+              extrapolateLeft: "clamp",
+              extrapolateRight: "clamp",
+            },
+          );
+          const nextSegment = segments[index + 1];
+          const nextProgress = lerp(0, WAYPOINT_ROUTE_START_PROGRESS, handoff);
+          const nextTravelState = getTravelState(
+            nextSegment,
+            index + 1,
+            segments.length,
+            nextProgress,
+          );
+
+          return {
+            center: mixCoordinate(
+              currentTravelState.center,
+              nextTravelState.center,
+              handoff,
+            ),
+            currentSegment: index + 1,
+            phase: "travel",
+            pitch: lerp(
+              currentTravelState.pitch,
+              nextTravelState.pitch,
+              handoff,
+            ),
+            routeProgress: nextProgress,
+            zoom: lerp(
+              currentTravelState.zoom,
+              nextTravelState.zoom,
+              handoff,
+            ),
+          };
+        }
+      }
 
       return {
-        center: getTravelCameraCenter(segment, phase),
+        center: currentTravelState.center,
         currentSegment: index,
         phase: "travel",
-        pitch: Math.max(
-          0,
-          lerp(travelStartPitch, 0, phase) +
-            Math.sin(Math.PI * phase) * travelPitchWave,
-        ),
+        pitch: currentTravelState.pitch,
         routeProgress: phase,
-        zoom: clamp(
-          lerp(segment.travelStartZoom, segment.arrivalZoom, phase) +
-            Math.sin(Math.PI * phase) * segment.profile.midZoomWave,
-          2.1,
-          11.6,
-        ),
+        zoom: currentTravelState.zoom,
       };
     }
 
