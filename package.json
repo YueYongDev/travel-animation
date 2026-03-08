@@ -1,19 +1,32 @@
 {
-  "name": "trailframe-3d",
+  "name": "travel-animation",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "studio": "remotion studio src/index.ts --no-open",
+    "render:journey": "remotion render --gl=angle --concurrency=1 src/index.ts TravelMapJourney out/travel-map-journey.mp4",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "cesium": "^1.133.1",
-    "gsap": "^3.13.0"
+    "@remotion/player": "^4.0.434",
+    "@turf/turf": "^7.3.4",
+    "mapbox-gl": "^3.19.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "remotion": "^4.0.434",
+    "zod": "^4.1.5"
   },
   "devDependencies": {
-    "vite": "^7.1.3",
-    "vite-plugin-cesium": "^1.2.23"
+    "@remotion/cli": "^4.0.434",
+    "@vitejs/plugin-react": "^5.0.2",
+    "@types/node": "^25.3.5",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.3"
   }
 }

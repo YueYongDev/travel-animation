@@ -1,57 +1,46 @@
-# TrailFrame 3D (MVP)
+# Travel Animation
 
-3D 地球旅行路线动画网站原型，技术栈：Vite + Cesium + GSAP。
+保留原来的 Vite 页面 UI 和左侧地点编辑逻辑，右侧预览区改成 Remotion 驱动的地图动画。
 
-## 开发
+当前动画镜头语言：
+
+- 先聚焦起点
+- 再拉远镜头
+- 然后绘制航线
+- 相机跟随路线头部飞向终点
+
+## 启动网页 UI
 
 ```bash
 npm install
 npm run dev
 ```
 
-## 构建
+## 打开 Remotion Studio
 
 ```bash
-npm run build
-npm run preview
+npm run studio
 ```
 
-## 部署到 Vercel
-
-已添加 `vercel.json` 和 `.vercelignore`，可直接部署。
+## 渲染视频
 
 ```bash
-# 首次登录（如果未登录）
-vercel login
-
-# 预览环境部署
-vercel deploy
-
-# 生产环境部署
-vercel deploy --prod
+npm run render:journey
 ```
 
-Vercel 项目构建参数已固定为：
-- Install Command: `npm ci`
-- Build Command: `npm run build`
-- Output Directory: `dist`
+默认输出到 `out/travel-map-journey.mp4`。
 
-## 数据配置
+## Mapbox Token
 
-编辑 `src/tripData.js`：
-- `city` / `country` / `flag`
-- `lon` / `lat`
-- `metric`
-- `photos`
-- `vehicle` (`plane` / `car`)
+```bash
+cp .env.example .env
+```
 
-## 说明
+把 `.env` 里的 `REMOTION_MAPBOX_TOKEN` 替换成你自己的 token。
 
-- 地球场景与路径动画：`src/globeScene.js`
-- HUD 卡片与播放控制：`src/main.js`
-- 样式：`src/styles.css`
+## 关键文件
 
-后续可扩展：
-1. 增加模板编辑器（多段行程、配色、字体、图标）
-2. 引入后端存储（路线 JSON、图片素材）
-3. 接 Remotion/FFmpeg 导出 MP4
+- `src/main.js`: 左侧 UI、地点输入、地理编码、排序逻辑
+- `src/remotionJourneyScene.tsx`: 右侧 Remotion Player 适配层
+- `src/compositions/TravelMapJourney.tsx`: 地图动画 composition
+- `src/Root.tsx`: Remotion composition 注册和 render metadata

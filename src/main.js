@@ -1,6 +1,5 @@
-import * as Cesium from "cesium";
 import "./styles.css";
-import { createGlobeScene } from "./globeScene";
+import {createRemotionJourneyScene} from "./remotionJourneyScene";
 
 const playBtn = document.getElementById("playBtn");
 const pauseBtn = document.getElementById("pauseBtn");
@@ -22,8 +21,6 @@ let scene = null;
 let playing = false;
 let paused = false;
 let building = false;
-let arrivalTarget = null;
-let detachArrivalTracker = null;
 
 const MODES = ["plane", "train", "car", "ship", "bike", "walk"];
 const MODE_EMOJI = {
@@ -40,14 +37,6 @@ const inputSearchState = new WeakMap();
 let draggedRow = null;
 let dropRow = null;
 let dropPosition = "after";
-const BASEMAPS = ["satellite", "light", "dark", "terrain"];
-const BASEMAP_LABELS = {
-  satellite: "卫星",
-  light: "浅色",
-  dark: "深色",
-  terrain: "地形"
-};
-let activeBasemap = "satellite";
 let latestPlaybackBlob = null;
 let latestPlaybackMimeType = "";
 
@@ -494,7 +483,6 @@ function showArrival(stop, km) {
   arrivalCity.textContent = stop.city;
   arrivalCountry.textContent = stop.country || "-";
   arrivalKm.textContent = km ? `+${Math.round(km)} km` : "";
-  arrivalTarget = Number.isFinite(stop.lon) && Number.isFinite(stop.lat) ? { lon: stop.lon, lat: stop.lat } : null;
   arrivalCard.classList.add("show");
   updateArrivalCardPosition();
 }
@@ -503,28 +491,13 @@ function hideArrival() {
   if (!arrivalCard) return;
   arrivalCard.classList.remove("show");
   arrivalCard.style.display = "none";
-  arrivalTarget = null;
 }
 
 function updateArrivalCardPosition() {
-  if (!scene || !arrivalCard || !globeContainer || !arrivalTarget) return;
-  const viewer = scene.viewer;
-  if (!viewer) return;
-
-  const target = Cesium.Cartesian3.fromDegrees(arrivalTarget.lon, arrivalTarget.lat, 12000);
-  const win = viewer.scene.cartesianToCanvasCoordinates(target);
-  if (!win || !Number.isFinite(win.x) || !Number.isFinite(win.y)) {
-    arrivalCard.style.display = "none";
-    return;
-  }
-
-  const rect = globeContainer.getBoundingClientRect();
-  const x = Math.max(16, Math.min(win.x, rect.width - 16));
-  const y = Math.max(16, Math.min(win.y, rect.height - 16));
-
+  if (!arrivalCard) return;
   arrivalCard.style.display = "block";
-  arrivalCard.style.left = `${x}px`;
-  arrivalCard.style.top = `${y}px`;
+  arrivalCard.style.left = "24px";
+  arrivalCard.style.top = "24px";
 }
 
 function collectLegModes(legCount) {
@@ -776,18 +749,8 @@ async function initScene(stops, legModes) {
   building = true;
   generateBtn.disabled = true;
   generateBtn.textContent = "Generating...";
-  if (detachArrivalTracker) {
-    detachArrivalTracker();
-    detachArrivalTracker = null;
-  }
   if (scene) scene.destroy();
-  scene = await createGlobeScene("globeContainer", stops, legModes, { basemap: activeBasemap });
-  const viewerRef = scene.viewer;
-  const onPostRender = () => updateArrivalCardPosition();
-  viewerRef.scene.postRender.addEventListener(onPostRender);
-  detachArrivalTracker = () => {
-    viewerRef.scene.postRender.removeEventListener(onPostRender);
-  };
+  scene = await createRemotionJourneyScene("globeContainer", stops, legModes);
 
   hideArrival();
   latestPlaybackBlob = null;
@@ -801,20 +764,13 @@ async function initScene(stops, legModes) {
 
 function updateBasemapButtonUI() {
   if (!basemapBtn) return;
-  const label = BASEMAP_LABELS[activeBasemap] || "卫星";
-  basemapBtn.textContent = `底图 · ${label}`;
-  basemapBtn.dataset.basemap = activeBasemap;
+  basemapBtn.textContent = "Remotion Preview";
+  basemapBtn.dataset.basemap = "preview";
+  basemapBtn.disabled = true;
 }
 
 function cycleBasemap() {
-  const idx = BASEMAPS.indexOf(activeBasemap);
-  const next = BASEMAPS[(idx + 1) % BASEMAPS.length];
-  activeBasemap = next;
-  updateBasemapButtonUI();
-  if (scene?.setBasemap) {
-    activeBasemap = scene.setBasemap(next);
-    updateBasemapButtonUI();
-  }
+  return;
 }
 
 async function run() {
@@ -985,7 +941,6 @@ initTimelineDragSort();
 initSidebarOverflowState();
 
 window.addEventListener("beforeunload", () => scene?.destroy());
-window.addEventListener("beforeunload", () => detachArrivalTracker?.());
 initModeToggles();
 updateBasemapButtonUI();
 
