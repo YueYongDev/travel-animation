@@ -170,11 +170,13 @@ export const buildJourneySegments = (
   for (let index = 0; index < modes.length; index += 1) {
     const mode = modes[index];
     const profile = getTransportProfile(mode);
+    const focusFrames = index === 0 ? profile.focusFrames : 0;
+    const holdFrames = index === modes.length - 1 ? profile.holdFrames : 0;
     const focusStart = cursor;
-    const focusEnd = focusStart + profile.focusFrames;
+    const focusEnd = focusStart + focusFrames;
     const travelStart = focusEnd;
     const travelEnd = travelStart + profile.travelFrames;
-    const holdEnd = travelEnd + profile.holdFrames;
+    const holdEnd = travelEnd + holdFrames;
 
     segments.push({
       focusEnd,

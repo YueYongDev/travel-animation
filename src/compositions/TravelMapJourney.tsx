@@ -185,8 +185,10 @@ const buildJourneyPlan = (
   }
 
   const timeline = buildJourneySegments(stops.length, legModes);
+  const plan: JourneySegment[] = [];
 
-  return timeline.map((segment, index) => {
+  for (let index = 0; index < timeline.length; index += 1) {
+    const segment = timeline[index];
     const start = stopToCoordinate(stops[index]);
     const end = stopToCoordinate(stops[index + 1]);
     const distanceKm = haversineDistanceKm(start, end);
@@ -196,18 +198,21 @@ const buildJourneyPlan = (
       overviewZoom + 0.45,
       11.4,
     );
-    const travelStartZoom = clamp(
-      overviewZoom + segment.profile.travelStartZoomDelta,
-      overviewZoom,
-      focusZoom,
-    );
+    const previousArrivalZoom = plan[index - 1]?.arrivalZoom;
+    const travelStartZoom =
+      previousArrivalZoom ??
+      clamp(
+        overviewZoom + segment.profile.travelStartZoomDelta,
+        overviewZoom,
+        focusZoom,
+      );
     const arrivalZoom = clamp(
       overviewZoom + segment.profile.arrivalZoomDelta,
       overviewZoom,
       10.8,
     );
 
-    return {
+    plan.push({
       ...segment,
       arrivalZoom,
       end,
@@ -216,8 +221,10 @@ const buildJourneyPlan = (
       path: buildBezierPath(start, end, segment.mode, distanceKm),
       start,
       travelStartZoom,
-    };
-  });
+    });
+  }
+
+  return plan;
 };
 
 const getPathPoint = (path: Coordinate[], progress: number): Coordinate => {
@@ -547,6 +554,11 @@ const getAnimationState = (
         extrapolateLeft: "clamp",
         extrapolateRight: "clamp",
       });
+      const travelStartPitch = index === 0 ? segment.profile.travelPitch : 0;
+      const travelPitchWave =
+        index === 0
+          ? segment.profile.midPitchWave
+          : Math.max(segment.profile.midPitchWave * 0.7, 1.2);
 
       return {
         center: getTravelCameraCenter(segment, phase),
@@ -554,8 +566,8 @@ const getAnimationState = (
         phase: "travel",
         pitch: Math.max(
           0,
-          lerp(segment.profile.travelPitch, 0, phase) +
-            Math.sin(Math.PI * phase) * segment.profile.midPitchWave,
+          lerp(travelStartPitch, 0, phase) +
+            Math.sin(Math.PI * phase) * travelPitchWave,
         ),
         routeProgress: phase,
         zoom: clamp(
