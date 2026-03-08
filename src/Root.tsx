@@ -24,10 +24,18 @@ const calculateMetadata: CalculateMetadataFunction<TravelMapJourneyInput> = asyn
   const resolvedStops = await Promise.all(
     props.places.map((place) => geocodePlace(place, abortSignal)),
   );
+  const stopCoordinates = resolvedStops.map((stop) => ({
+    lat: stop.latitude,
+    lon: stop.longitude,
+  }));
 
   return {
     defaultOutName: `${resolvedStops.map((stop) => stop.title.toLowerCase().replace(/\s+/g, "-")).join("-to-")}.mp4`,
-    durationInFrames: getJourneyDurationInFrames(resolvedStops.length, legModes),
+    durationInFrames: getJourneyDurationInFrames(
+      resolvedStops.length,
+      legModes,
+      stopCoordinates,
+    ),
     props: {
       ...props,
       legModes,

@@ -14,6 +14,7 @@ import mapboxgl, {Map} from "mapbox-gl";
 import {
   DEFAULT_TRANSPORT_MODE,
   OPENING_HOLD_FRAMES,
+  type JourneyStopCoordinate,
   buildJourneySegments,
   getTransportProfile,
   normalizeLegModes,
@@ -29,6 +30,7 @@ type Coordinate = [number, number];
 
 type JourneySegment = {
   arrivalZoom: number;
+  distanceKm: number;
   end: Coordinate;
   focusEnd: number;
   focusStart: number;
@@ -38,13 +40,14 @@ type JourneySegment = {
   overviewZoom: number;
   path: Coordinate[];
   profile: ReturnType<typeof getTransportProfile>;
+  settleFrames: number;
   start: Coordinate;
   travelEnd: number;
   travelStart: number;
   travelStartZoom: number;
 };
 
-type AnimationPhase = "opening" | "focus" | "travel" | "hold" | "end";
+type AnimationPhase = "opening" | "focus" | "settle" | "travel" | "hold" | "end";
 
 type AnimationState = {
   center: Coordinate;
@@ -81,8 +84,7 @@ const HIDE_FEATURES = [
   "show3dFacades",
 ] as const;
 
-const WAYPOINT_HANDOFF_FRAMES = 8;
-const WAYPOINT_ROUTE_START_PROGRESS = 0.04;
+const ACTIVE_ROUTE_REVEAL_LEAD = 0.018;
 const BADGE_SIZE = 128;
 const TRANSPORT_EMOJIS: Record<TransportMode, string> = {
   bike: "🚲",
@@ -206,7 +208,11 @@ const buildJourneyPlan = (
     return [] as JourneySegment[];
   }
 
-  const timeline = buildJourneySegments(stops.length, legModes);
+  const stopCoordinates: JourneyStopCoordinate[] = stops.map((stop) => ({
+    lat: stop.latitude,
+    lon: stop.longitude,
+  }));
+  const timeline = buildJourneySegments(stops.length, legModes, stopCoordinates);
   const plan: JourneySegment[] = [];
 
   for (let index = 0; index < timeline.length; index += 1) {
@@ -220,14 +226,11 @@ const buildJourneyPlan = (
       overviewZoom + 0.45,
       11.4,
     );
-    const previousArrivalZoom = plan[index - 1]?.arrivalZoom;
-    const travelStartZoom =
-      previousArrivalZoom ??
-      clamp(
-        overviewZoom + segment.profile.travelStartZoomDelta,
-        overviewZoom,
-        focusZoom,
-      );
+    const travelStartZoom = clamp(
+      overviewZoom + segment.profile.travelStartZoomDelta,
+      overviewZoom,
+      focusZoom,
+    );
     const arrivalZoom = clamp(
       overviewZoom + segment.profile.arrivalZoomDelta,
       overviewZoom,
@@ -237,6 +240,7 @@ const buildJourneyPlan = (
     plan.push({
       ...segment,
       arrivalZoom,
+      distanceKm,
       end,
       focusZoom,
       overviewZoom,
@@ -318,7 +322,7 @@ const COMPLETED_ROUTE_WIDTH = createModeExpression((mode) => {
 });
 
 const HEAD_BADGE_SCALE = createModeExpression((mode) => {
-  return clamp(0.72 + (getTransportProfile(mode).lineWidth - 5.5) * 0.036, 0.72, 0.84);
+  return clamp(0.82 + (getTransportProfile(mode).lineWidth - 5.5) * 0.04, 0.82, 0.96);
 });
 
 const createTransportBadgeImage = (mode: TransportMode) => {
@@ -333,7 +337,7 @@ const createTransportBadgeImage = (mode: TransportMode) => {
 
   const emoji = TRANSPORT_EMOJIS[mode];
   const center = BADGE_SIZE / 2;
-  const radius = 42;
+  const radius = 44;
 
   context.clearRect(0, 0, BADGE_SIZE, BADGE_SIZE);
   context.shadowColor = "rgba(6, 11, 20, 0.22)";
@@ -348,7 +352,7 @@ const createTransportBadgeImage = (mode: TransportMode) => {
   context.strokeStyle = "rgba(15, 23, 42, 0.16)";
   context.stroke();
   context.font =
-    '54px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", system-ui, sans-serif';
+    '60px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", system-ui, sans-serif';
   context.textAlign = "center";
   context.textBaseline = "middle";
   context.fillStyle = "#111827";
@@ -410,9 +414,14 @@ const buildActiveRoute = (
     };
   }
 
+  const isPreviewTravel =
+    phase === "travel" || (phase === "focus" && progress > 0.0001);
+  const routeProgress = isPreviewTravel
+    ? clamp(progress + ACTIVE_ROUTE_REVEAL_LEAD, 0, 1)
+    : progress;
   const coordinates =
-    phase === "travel"
-      ? getPartialPath(segment.path, progress)
+    isPreviewTravel
+      ? getPartialPath(segment.path, routeProgress)
       : phase === "hold" || phase === "end"
         ? segment.path
         : [segment.start, segment.start];
@@ -450,9 +459,9 @@ const buildHeadPoint = (
   }
 
   const coordinate =
-    phase === "opening" || phase === "focus"
+    phase === "opening" || phase === "settle"
       ? segment.start
-      : phase === "travel"
+      : phase === "focus" || phase === "travel"
         ? getPathPoint(segment.path, progress)
         : segment.end;
 
@@ -519,13 +528,11 @@ const getTravelProgress = (
   segmentCount: number,
 ) => {
   const lastTravelFrame = Math.max(segment.travelStart, segment.travelEnd - 1);
-  const startProgress =
-    segmentIndex === 0 ? 0 : WAYPOINT_ROUTE_START_PROGRESS;
 
   return interpolate(
     frame,
     [segment.travelStart, lastTravelFrame],
-    [startProgress, 1],
+    [0, 1],
     {
       easing: getTravelEasing(segmentIndex, segmentCount),
       extrapolateLeft: "clamp",
@@ -660,12 +667,41 @@ const getAnimationState = (
       });
 
       return {
-        center: mixCoordinate(segment.start, getTravelCameraCenter(segment, 0), phase),
+        center: mixCoordinate(
+          segment.start,
+          getTravelCameraCenter(segment, 0),
+          phase,
+        ),
         currentSegment: index,
         phase: "focus",
         pitch: lerp(focusStartPitch, segment.profile.travelPitch, phase),
         routeProgress: 0,
         zoom: lerp(focusStartZoom, segment.travelStartZoom, phase),
+      };
+    }
+
+    if (segment.settleFrames > 0 && frame < segment.travelStart) {
+      const settleStartFrame = segment.travelStart - segment.settleFrames;
+      const settleEndFrame = Math.max(settleStartFrame, segment.travelStart - 1);
+      const settle = interpolate(frame, [settleStartFrame, settleEndFrame], [0, 1], {
+        easing: Easing.inOut(Easing.sin),
+        extrapolateLeft: "clamp",
+        extrapolateRight: "clamp",
+      });
+      const settledTravelState = getTravelState(
+        segment,
+        index,
+        segments.length,
+        0,
+      );
+
+      return {
+        center: mixCoordinate(segment.start, settledTravelState.center, settle),
+        currentSegment: index,
+        phase: "settle",
+        pitch: lerp(0, settledTravelState.pitch, settle),
+        routeProgress: 0,
+        zoom: lerp(focusStartZoom, settledTravelState.zoom, settle),
       };
     }
 
@@ -677,55 +713,6 @@ const getAnimationState = (
         segments.length,
         phase,
       );
-
-      if (index < segments.length - 1) {
-        const handoffStartFrame = Math.max(
-          segment.travelStart,
-          segment.travelEnd - WAYPOINT_HANDOFF_FRAMES,
-        );
-
-        if (frame >= handoffStartFrame) {
-          const handoff = interpolate(
-            frame,
-            [handoffStartFrame, segment.travelEnd - 1],
-            [0, 1],
-            {
-              easing: Easing.inOut(Easing.sin),
-              extrapolateLeft: "clamp",
-              extrapolateRight: "clamp",
-            },
-          );
-          const nextSegment = segments[index + 1];
-          const nextProgress = lerp(0, WAYPOINT_ROUTE_START_PROGRESS, handoff);
-          const nextTravelState = getTravelState(
-            nextSegment,
-            index + 1,
-            segments.length,
-            nextProgress,
-          );
-
-          return {
-            center: mixCoordinate(
-              currentTravelState.center,
-              nextTravelState.center,
-              handoff,
-            ),
-            currentSegment: index + 1,
-            phase: "travel",
-            pitch: lerp(
-              currentTravelState.pitch,
-              nextTravelState.pitch,
-              handoff,
-            ),
-            routeProgress: nextProgress,
-            zoom: lerp(
-              currentTravelState.zoom,
-              nextTravelState.zoom,
-              handoff,
-            ),
-          };
-        }
-      }
 
       return {
         center: currentTravelState.center,
@@ -920,13 +907,13 @@ export const TravelMapJourney = ({
           "circle-radius": [
             "case",
             ["boolean", ["get", "isStart"], false],
-            9,
-            ["boolean", ["get", "isEnd"], false],
-            9,
             7,
+            ["boolean", ["get", "isEnd"], false],
+            7,
+            5.5,
           ],
           "circle-stroke-color": "#09111d",
-          "circle-stroke-width": 2.25,
+          "circle-stroke-width": 2,
         },
       });
 
@@ -939,7 +926,7 @@ export const TravelMapJourney = ({
           "text-field": ["get", "title"],
           "text-font": ["DIN Pro Bold", "Arial Unicode MS Bold"],
           "text-offset": [0, 0.58],
-          "text-size": 25,
+          "text-size": 21,
         },
         paint: {
           "text-color": "#fff7ed",

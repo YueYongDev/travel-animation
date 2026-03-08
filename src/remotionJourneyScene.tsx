@@ -13,6 +13,7 @@ import {
   COMPOSITION_FPS,
   COMPOSITION_HEIGHT,
   COMPOSITION_WIDTH,
+  type JourneyStopCoordinate,
   buildJourneySegments,
   getJourneyDurationInFrames,
   normalizeLegModes,
@@ -175,7 +176,15 @@ const buildArrivalEvents = (
   legModes: readonly TransportMode[],
 ) => {
   const events: Array<{frame: number; payload: ArrivalPayload}> = [];
-  const segments = buildJourneySegments(stops.length, legModes);
+  const stopCoordinates: JourneyStopCoordinate[] = stops.map((stop) => ({
+    lat: stop.lat,
+    lon: stop.lon,
+  }));
+  const segments = buildJourneySegments(
+    stops.length,
+    legModes,
+    stopCoordinates,
+  );
 
   for (let index = 0; index < stops.length - 1; index += 1) {
     const arrivalFrame = segments[index].travelEnd - 1;
@@ -226,9 +235,14 @@ export const createRemotionJourneyScene = async (
   const sceneRef = React.createRef<SceneController>();
   const normalizedLegModes = normalizeLegModes(legModes, stops.length);
   const inputProps = toInputProps(stops, normalizedLegModes);
+  const stopCoordinates: JourneyStopCoordinate[] = stops.map((stop) => ({
+    lat: stop.lat,
+    lon: stop.lon,
+  }));
   const durationInFrames = getJourneyDurationInFrames(
     stops.length,
     normalizedLegModes,
+    stopCoordinates,
   );
 
   root.render(
