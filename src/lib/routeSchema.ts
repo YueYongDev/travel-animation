@@ -1,6 +1,18 @@
 import {z} from "zod";
 
+export const transportModes = [
+  "plane",
+  "train",
+  "car",
+  "ship",
+  "bike",
+  "walk",
+] as const;
+
+export type TransportMode = (typeof transportModes)[number];
+
 export const travelMapJourneySchema = z.object({
+  legModes: z.array(z.enum(transportModes)).optional(),
   places: z
     .array(z.string().trim().min(1, "Place is required"))
     .min(2, "Add at least two places")
@@ -18,9 +30,11 @@ export type ResolvedStop = {
 };
 
 export type TravelMapJourneyResolvedProps = TravelMapJourneyInput & {
+  legModes: TransportMode[];
   resolvedStops: ResolvedStop[];
 };
 
 export type TravelMapJourneyProps = TravelMapJourneyInput & {
+  legModes?: TransportMode[];
   resolvedStops?: ResolvedStop[];
 };

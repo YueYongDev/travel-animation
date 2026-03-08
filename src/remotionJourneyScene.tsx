@@ -10,13 +10,11 @@ import {
   COMPOSITION_FPS,
   COMPOSITION_HEIGHT,
   COMPOSITION_WIDTH,
-  OPENING_HOLD_FRAMES,
-  SEGMENT_FOCUS_FRAMES,
-  SEGMENT_HOLD_FRAMES,
-  SEGMENT_TRAVEL_FRAMES,
+  buildJourneySegments,
   getJourneyDurationInFrames,
+  normalizeLegModes,
 } from "./lib/journeyTiming";
-import type {TravelMapJourneyProps} from "./lib/routeSchema";
+import type {TransportMode, TravelMapJourneyProps} from "./lib/routeSchema";
 
 type Stop = {
   city: string;
@@ -101,8 +99,12 @@ const getSegmentKm = (from: Stop, to: Stop) => {
   return 2 * radiusKm * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
 
-const toInputProps = (stops: Stop[]): TravelMapJourneyProps => {
+const toInputProps = (
+  stops: Stop[],
+  legModes: readonly TransportMode[],
+): TravelMapJourneyProps => {
   return {
+    legModes: [...legModes],
     places: stops.map((stop) => `${stop.city}, ${stop.country}`),
     resolvedStops: stops.map((stop) => ({
       country: stop.country,
@@ -114,13 +116,15 @@ const toInputProps = (stops: Stop[]): TravelMapJourneyProps => {
   };
 };
 
-const buildArrivalEvents = (stops: Stop[]) => {
+const buildArrivalEvents = (
+  stops: Stop[],
+  legModes: readonly TransportMode[],
+) => {
   const events: Array<{frame: number; payload: ArrivalPayload}> = [];
-  let cursor = OPENING_HOLD_FRAMES;
+  const segments = buildJourneySegments(stops.length, legModes);
 
   for (let index = 0; index < stops.length - 1; index += 1) {
-    const arrivalFrame =
-      cursor + SEGMENT_FOCUS_FRAMES + SEGMENT_TRAVEL_FRAMES - 1;
+    const arrivalFrame = segments[index].travelEnd - 1;
     events.push({
       frame: arrivalFrame,
       payload: {
@@ -128,8 +132,6 @@ const buildArrivalEvents = (stops: Stop[]) => {
         stop: stops[index + 1],
       },
     });
-    cursor +=
-      SEGMENT_FOCUS_FRAMES + SEGMENT_TRAVEL_FRAMES + SEGMENT_HOLD_FRAMES;
   }
 
   return events;
@@ -148,6 +150,7 @@ const getLargestCanvas = (element: HTMLElement | null) => {
 export const createRemotionJourneyScene = async (
   containerId: string,
   stops: Stop[],
+  legModes: readonly TransportMode[] = [],
 ) => {
   const container = document.getElementById(containerId);
 
@@ -166,8 +169,12 @@ export const createRemotionJourneyScene = async (
 
   const root: Root = createRoot(mountNode);
   const sceneRef = React.createRef<SceneController>();
-  const inputProps = toInputProps(stops);
-  const durationInFrames = getJourneyDurationInFrames(stops.length);
+  const normalizedLegModes = normalizeLegModes(legModes, stops.length);
+  const inputProps = toInputProps(stops, normalizedLegModes);
+  const durationInFrames = getJourneyDurationInFrames(
+    stops.length,
+    normalizedLegModes,
+  );
 
   root.render(
     <SceneBridge
@@ -226,7 +233,7 @@ export const createRemotionJourneyScene = async (
   };
 
   const resetScheduledEvents = () => {
-    scheduledEvents = buildArrivalEvents(stops).map((event) => ({
+    scheduledEvents = buildArrivalEvents(stops, normalizedLegModes).map((event) => ({
       callback: () => latestArrivalHandler?.(event.payload),
       delayMs: (event.frame / COMPOSITION_FPS) * 1000,
       fired: false,

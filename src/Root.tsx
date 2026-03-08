@@ -3,6 +3,7 @@ import {Composition, Folder} from "remotion";
 import {TravelMapJourney} from "./compositions/TravelMapJourney";
 import {geocodePlace} from "./lib/geocode";
 import {
+  normalizeLegModes,
   COMPOSITION_FPS,
   COMPOSITION_HEIGHT,
   COMPOSITION_WIDTH,
@@ -19,15 +20,17 @@ const calculateMetadata: CalculateMetadataFunction<TravelMapJourneyInput> = asyn
   props,
   abortSignal,
 }) => {
+  const legModes = normalizeLegModes(props.legModes, props.places.length);
   const resolvedStops = await Promise.all(
     props.places.map((place) => geocodePlace(place, abortSignal)),
   );
 
   return {
     defaultOutName: `${resolvedStops.map((stop) => stop.title.toLowerCase().replace(/\s+/g, "-")).join("-to-")}.mp4`,
-    durationInFrames: getJourneyDurationInFrames(resolvedStops.length),
+    durationInFrames: getJourneyDurationInFrames(resolvedStops.length, legModes),
     props: {
       ...props,
+      legModes,
       resolvedStops,
     } satisfies TravelMapJourneyResolvedProps,
   };
@@ -44,6 +47,7 @@ export const RemotionRoot = () => {
         width={COMPOSITION_WIDTH}
         height={COMPOSITION_HEIGHT}
         defaultProps={{
+          legModes: ["plane"],
           places: ["Los Angeles, California, USA", "New York, New York, USA"],
         } satisfies TravelMapJourneyProps}
         schema={travelMapJourneySchema}

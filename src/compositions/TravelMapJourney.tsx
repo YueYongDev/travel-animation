@@ -1,5 +1,6 @@
 import "mapbox-gl/dist/mapbox-gl.css";
 
+import type {CSSProperties} from "react";
 import {useEffect, useMemo, useRef, useState} from "react";
 import {
   AbsoluteFill,
@@ -11,17 +12,48 @@ import {
 } from "remotion";
 import mapboxgl, {Map} from "mapbox-gl";
 import {
+  DEFAULT_TRANSPORT_MODE,
   OPENING_HOLD_FRAMES,
-  SEGMENT_FOCUS_FRAMES,
-  SEGMENT_HOLD_FRAMES,
-  SEGMENT_TRAVEL_FRAMES,
+  buildJourneySegments,
+  getTransportProfile,
+  normalizeLegModes,
 } from "../lib/journeyTiming";
+import {transportModes} from "../lib/routeSchema";
 import type {
   ResolvedStop,
+  TransportMode,
   TravelMapJourneyProps,
 } from "../lib/routeSchema";
 
 type Coordinate = [number, number];
+
+type JourneySegment = {
+  arrivalZoom: number;
+  end: Coordinate;
+  focusEnd: number;
+  focusStart: number;
+  focusZoom: number;
+  holdEnd: number;
+  mode: TransportMode;
+  overviewZoom: number;
+  path: Coordinate[];
+  profile: ReturnType<typeof getTransportProfile>;
+  start: Coordinate;
+  travelEnd: number;
+  travelStart: number;
+  travelStartZoom: number;
+};
+
+type AnimationPhase = "opening" | "focus" | "travel" | "hold" | "end";
+
+type AnimationState = {
+  center: Coordinate;
+  currentSegment: number;
+  phase: AnimationPhase;
+  pitch: number;
+  routeProgress: number;
+  zoom: number;
+};
 
 const HIDE_FEATURES = [
   "showRoadsAndTransit",
@@ -53,6 +85,10 @@ const lerp = (start: number, end: number, progress: number) => {
   return start + (end - start) * progress;
 };
 
+const clamp = (value: number, min: number, max: number) => {
+  return Math.min(max, Math.max(min, value));
+};
+
 const wrapLongitude = (value: number) => {
   return ((((value + 180) % 360) + 360) % 360) - 180;
 };
@@ -68,17 +104,19 @@ const shortestLongitudeDelta = (start: number, end: number) => {
   return delta;
 };
 
-const interpolateCoordinate = (
+const mixCoordinate = (
   start: Coordinate,
   end: Coordinate,
   progress: number,
 ): Coordinate => {
-  const deltaLng = shortestLongitudeDelta(start[0], end[0]);
-
   return [
-    wrapLongitude(start[0] + deltaLng * progress),
+    lerp(start[0], end[0], progress),
     lerp(start[1], end[1], progress),
   ];
+};
+
+const wrapCoordinate = (coordinate: Coordinate): Coordinate => {
+  return [wrapLongitude(coordinate[0]), clamp(coordinate[1], -84, 84)];
 };
 
 const stopToCoordinate = (stop: ResolvedStop): Coordinate => {
@@ -103,79 +141,297 @@ const haversineDistanceKm = (start: Coordinate, end: Coordinate) => {
   return 2 * earthRadiusKm * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
 
-const getOverviewZoom = (distanceKm: number) => {
+const getOverviewZoom = (distanceKm: number, mode: TransportMode) => {
   const raw = 7.4 - Math.log(distanceKm + 1) * 0.55;
-  return Math.max(2.35, Math.min(5.4, raw));
-};
-
-const getFocusZoom = (overviewZoom: number) => {
-  return Math.min(9.6, overviewZoom + 3.9);
-};
-
-const getArrivalZoom = (overviewZoom: number) => {
-  return Math.min(5.4, overviewZoom + 1.1);
-};
-
-const routeFeature = (
-  stops: ResolvedStop[],
-  segmentIndex: number,
-  segmentProgress: number,
-) => {
-  const completed = stops.slice(0, segmentIndex + 1).map(stopToCoordinate);
-  const start = stopToCoordinate(stops[segmentIndex]);
-  const end = stopToCoordinate(stops[segmentIndex + 1]);
-  const head = interpolateCoordinate(start, end, segmentProgress);
-
-  return {
-    type: "Feature" as const,
-    properties: {},
-    geometry: {
-      type: "LineString" as const,
-      coordinates: [...completed, head],
-    },
+  const modeBias: Record<TransportMode, number> = {
+    bike: 2.1,
+    car: 1.45,
+    plane: -0.2,
+    ship: 0.15,
+    train: 1.1,
+    walk: 2.5,
   };
+
+  return clamp(raw + modeBias[mode], 2.15, 8.7);
 };
+
+const buildBezierPath = (
+  start: Coordinate,
+  end: Coordinate,
+  mode: TransportMode,
+  _distanceKm: number,
+) => {
+  const profile = getTransportProfile(mode);
+  const endLng = start[0] + shortestLongitudeDelta(start[0], end[0]);
+  const coordinates: Coordinate[] = [];
+
+  for (let index = 0; index <= profile.sampleCount; index += 1) {
+    const progress = index / profile.sampleCount;
+    coordinates.push([
+      lerp(start[0], endLng, progress),
+      lerp(start[1], end[1], progress),
+    ]);
+  }
+
+  return coordinates;
+};
+
+const buildJourneyPlan = (
+  stops: ResolvedStop[],
+  legModes: readonly TransportMode[],
+) => {
+  if (stops.length < 2) {
+    return [] as JourneySegment[];
+  }
+
+  const timeline = buildJourneySegments(stops.length, legModes);
+
+  return timeline.map((segment, index) => {
+    const start = stopToCoordinate(stops[index]);
+    const end = stopToCoordinate(stops[index + 1]);
+    const distanceKm = haversineDistanceKm(start, end);
+    const overviewZoom = getOverviewZoom(distanceKm, segment.mode);
+    const focusZoom = clamp(
+      overviewZoom + segment.profile.focusZoomBoost,
+      overviewZoom + 0.45,
+      11.4,
+    );
+    const travelStartZoom = clamp(
+      overviewZoom + segment.profile.travelStartZoomDelta,
+      overviewZoom,
+      focusZoom,
+    );
+    const arrivalZoom = clamp(
+      overviewZoom + segment.profile.arrivalZoomDelta,
+      overviewZoom,
+      10.8,
+    );
+
+    return {
+      ...segment,
+      arrivalZoom,
+      end,
+      focusZoom,
+      overviewZoom,
+      path: buildBezierPath(start, end, segment.mode, distanceKm),
+      start,
+      travelStartZoom,
+    };
+  });
+};
+
+const getPathPoint = (path: Coordinate[], progress: number): Coordinate => {
+  if (path.length === 0) {
+    return [0, 0];
+  }
+
+  if (path.length === 1) {
+    return path[0];
+  }
+
+  const clamped = clamp(progress, 0, 1);
+  const position = clamped * (path.length - 1);
+  const index = Math.floor(position);
+  const nextIndex = Math.min(index + 1, path.length - 1);
+  const localProgress = position - index;
+
+  return mixCoordinate(path[index], path[nextIndex], localProgress);
+};
+
+const getPartialPath = (path: Coordinate[], progress: number) => {
+  if (path.length < 2) {
+    return path;
+  }
+
+  const clamped = clamp(progress, 0, 1);
+  const position = clamped * (path.length - 1);
+  const index = Math.floor(position);
+  const partial = path.slice(0, Math.max(index + 1, 1));
+  const head = getPathPoint(path, clamped);
+
+  if (partial.length === 0) {
+    return [path[0], head];
+  }
+
+  const lastPoint = partial[partial.length - 1];
+  if (lastPoint[0] !== head[0] || lastPoint[1] !== head[1]) {
+    partial.push(head);
+  }
+
+  if (partial.length === 1) {
+    partial.push(head);
+  }
+
+  return partial;
+};
+
+const createModeExpression = (
+  transform: (mode: TransportMode) => number | string,
+) => {
+  return [
+    "match",
+    ["get", "mode"],
+    ...transportModes.flatMap((mode) => [mode, transform(mode)]),
+    transform(DEFAULT_TRANSPORT_MODE),
+  ] as unknown as mapboxgl.Expression;
+};
+
+const ACTIVE_ROUTE_COLOR = createModeExpression((mode) => {
+  return getTransportProfile(mode).activeColor;
+});
+
+const ACTIVE_ROUTE_WIDTH = createModeExpression((mode) => {
+  return getTransportProfile(mode).lineWidth;
+});
+
+const COMPLETED_ROUTE_WIDTH = createModeExpression((mode) => {
+  return Math.max(3.6, getTransportProfile(mode).lineWidth * 0.68);
+});
+
+const HEAD_RADIUS = createModeExpression((mode) => {
+  return Math.max(10, getTransportProfile(mode).lineWidth * 1.55);
+});
 
 const buildMarkers = (stops: ResolvedStop[]) => {
   return {
     type: "FeatureCollection" as const,
-    features: stops.map((stop) => ({
+    features: stops.map((stop, index) => ({
       type: "Feature" as const,
       properties: {
         country: stop.country,
+        isEnd: index === stops.length - 1,
+        isStart: index === 0,
         title: stop.title,
       },
       geometry: {
         type: "Point" as const,
-        coordinates: stopToCoordinate(stop),
+        coordinates: wrapCoordinate(stopToCoordinate(stop)),
       },
     })),
   };
 };
 
-const buildSegmentTimeline = (segmentCount: number) => {
-  const segments = [];
-  let cursor = OPENING_HOLD_FRAMES;
+const buildCompletedRoutes = (
+  segments: JourneySegment[],
+  currentSegment: number,
+) => {
+  return {
+    type: "FeatureCollection" as const,
+    features: segments.slice(0, currentSegment).map((segment) => ({
+      type: "Feature" as const,
+      properties: {
+        mode: segment.mode,
+      },
+      geometry: {
+        type: "LineString" as const,
+        coordinates: segment.path,
+      },
+    })),
+  };
+};
 
-  for (let index = 0; index < segmentCount; index += 1) {
-    const focusStart = cursor;
-    const focusEnd = focusStart + SEGMENT_FOCUS_FRAMES;
-    const travelStart = focusEnd;
-    const travelEnd = travelStart + SEGMENT_TRAVEL_FRAMES;
-    const holdEnd = travelEnd + SEGMENT_HOLD_FRAMES;
+const buildActiveRoute = (
+  segments: JourneySegment[],
+  currentSegment: number,
+  progress: number,
+  phase: AnimationPhase,
+) => {
+  const segment = segments[currentSegment];
 
-    segments.push({
-      focusEnd,
-      focusStart,
-      holdEnd,
-      travelEnd,
-      travelStart,
-    });
-
-    cursor = holdEnd;
+  if (!segment) {
+    return {
+      type: "FeatureCollection" as const,
+      features: [],
+    };
   }
 
-  return segments;
+  const coordinates =
+    phase === "travel"
+      ? getPartialPath(segment.path, progress)
+      : phase === "hold" || phase === "end"
+        ? segment.path
+        : [segment.start, segment.start];
+
+  return {
+    type: "FeatureCollection" as const,
+    features: [
+      {
+        type: "Feature" as const,
+        properties: {
+          mode: segment.mode,
+        },
+        geometry: {
+          type: "LineString" as const,
+          coordinates,
+        },
+      },
+    ],
+  };
+};
+
+const buildHeadPoint = (
+  segments: JourneySegment[],
+  currentSegment: number,
+  progress: number,
+  phase: AnimationPhase,
+) => {
+  const segment = segments[currentSegment];
+
+  if (!segment) {
+    return {
+      type: "FeatureCollection" as const,
+      features: [],
+    };
+  }
+
+  const coordinate =
+    phase === "opening" || phase === "focus"
+      ? segment.start
+      : phase === "travel"
+        ? getPathPoint(segment.path, progress)
+        : segment.end;
+
+  return {
+    type: "FeatureCollection" as const,
+    features: [
+      {
+        type: "Feature" as const,
+        properties: {
+          mode: segment.mode,
+        },
+        geometry: {
+          type: "Point" as const,
+          coordinates: wrapCoordinate(coordinate),
+        },
+      },
+    ],
+  };
+};
+
+const getTravelCameraCenter = (
+  segment: JourneySegment,
+  progress: number,
+): Coordinate => {
+  const clamped = clamp(progress, 0, 1);
+  const head = getPathPoint(segment.path, clamped);
+  const lookAhead = getPathPoint(
+    segment.path,
+    clamp(clamped + segment.profile.travelLead, 0, 1),
+  );
+  const tail = getPathPoint(
+    segment.path,
+    clamp(clamped - Math.max(segment.profile.travelLead * 0.85, 0.03), 0, 1),
+  );
+  const midpoint = getPathPoint(segment.path, 0.5);
+  const leadCenter = mixCoordinate(head, lookAhead, 0.58);
+  const stabilizedCenter = mixCoordinate(tail, leadCenter, 0.78);
+  const pull = segment.profile.centerPull * Math.sin(Math.PI * clamped);
+
+  return mixCoordinate(
+    mixCoordinate(stabilizedCenter, midpoint, pull),
+    segment.end,
+    clamped * clamped,
+  );
 };
 
 const MissingTokenMessage = () => {
@@ -221,116 +477,143 @@ const MissingTokenMessage = () => {
 
 const getAnimationState = (
   frame: number,
-  stops: ResolvedStop[],
-) => {
-  const segmentCount = stops.length - 1;
-  const timeline = buildSegmentTimeline(segmentCount);
+  segments: JourneySegment[],
+): AnimationState => {
+  const firstSegment = segments[0];
 
-  if (frame < OPENING_HOLD_FRAMES) {
-    const start = stopToCoordinate(stops[0]);
-    const firstEnd = stopToCoordinate(stops[1]);
-    const overviewZoom = getOverviewZoom(haversineDistanceKm(start, firstEnd));
-
+  if (!firstSegment) {
     return {
-      center: start,
+      center: [0, 0],
       currentSegment: 0,
-      pitch: 22,
+      phase: "opening",
+      pitch: 0,
       routeProgress: 0,
-      zoom: getFocusZoom(overviewZoom),
+      zoom: 2.8,
     };
   }
 
-  for (let index = 0; index < timeline.length; index += 1) {
-    const segment = timeline[index];
-    const start = stopToCoordinate(stops[index]);
-    const end = stopToCoordinate(stops[index + 1]);
-    const overviewZoom = getOverviewZoom(haversineDistanceKm(start, end));
+  if (frame < OPENING_HOLD_FRAMES) {
+    const phase = interpolate(frame, [0, OPENING_HOLD_FRAMES], [0, 1], {
+      easing: Easing.out(Easing.cubic),
+      extrapolateLeft: "clamp",
+      extrapolateRight: "clamp",
+    });
+
+    return {
+      center: firstSegment.start,
+      currentSegment: 0,
+      phase: "opening",
+      pitch: lerp(
+        firstSegment.profile.focusPitch + 6,
+        firstSegment.profile.focusPitch,
+        phase,
+      ),
+      routeProgress: 0,
+      zoom: lerp(
+        Math.min(firstSegment.focusZoom + 0.78, 11.8),
+        firstSegment.focusZoom,
+        phase,
+      ),
+    };
+  }
+
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index];
+    const previousSegment = segments[index - 1];
+    const focusStartZoom =
+      index === 0 ? segment.focusZoom : previousSegment.arrivalZoom;
+    const focusStartPitch = index === 0 ? segment.profile.focusPitch : 0;
 
     if (frame < segment.focusEnd) {
-      const phase = interpolate(
-        frame,
-        [segment.focusStart, segment.focusEnd],
-        [0, 1],
-        {
-          easing: Easing.out(Easing.cubic),
-          extrapolateLeft: "clamp",
-          extrapolateRight: "clamp",
-        },
-      );
+      const phase = interpolate(frame, [segment.focusStart, segment.focusEnd], [0, 1], {
+        easing: Easing.bezier(0.22, 0.86, 0.22, 1),
+        extrapolateLeft: "clamp",
+        extrapolateRight: "clamp",
+      });
 
       return {
-        center: start,
+        center: mixCoordinate(segment.start, getTravelCameraCenter(segment, 0), phase),
         currentSegment: index,
-        pitch: lerp(22, 0, phase),
+        phase: "focus",
+        pitch: lerp(focusStartPitch, segment.profile.travelPitch, phase),
         routeProgress: 0,
-        zoom: lerp(getFocusZoom(overviewZoom), overviewZoom, phase),
+        zoom: lerp(focusStartZoom, segment.travelStartZoom, phase),
       };
     }
 
     if (frame < segment.travelEnd) {
-      const phase = interpolate(
-        frame,
-        [segment.travelStart, segment.travelEnd],
-        [0, 1],
-        {
-          easing: Easing.inOut(Easing.cubic),
-          extrapolateLeft: "clamp",
-          extrapolateRight: "clamp",
-        },
-      );
+      const phase = interpolate(frame, [segment.travelStart, segment.travelEnd], [0, 1], {
+        easing: Easing.inOut(Easing.sin),
+        extrapolateLeft: "clamp",
+        extrapolateRight: "clamp",
+      });
 
       return {
-        center: interpolateCoordinate(start, end, phase),
+        center: getTravelCameraCenter(segment, phase),
         currentSegment: index,
-        pitch: 0,
+        phase: "travel",
+        pitch: Math.max(
+          0,
+          lerp(segment.profile.travelPitch, 0, phase) +
+            Math.sin(Math.PI * phase) * segment.profile.midPitchWave,
+        ),
         routeProgress: phase,
-        zoom: lerp(overviewZoom, getArrivalZoom(overviewZoom), phase),
+        zoom: clamp(
+          lerp(segment.travelStartZoom, segment.arrivalZoom, phase) +
+            Math.sin(Math.PI * phase) * segment.profile.midZoomWave,
+          2.1,
+          11.6,
+        ),
       };
     }
 
     if (frame < segment.holdEnd) {
       return {
-        center: end,
+        center: segment.end,
         currentSegment: index,
+        phase: "hold",
         pitch: 0,
         routeProgress: 1,
-        zoom: getArrivalZoom(overviewZoom),
+        zoom: segment.arrivalZoom,
       };
     }
   }
 
-  const lastSegmentIndex = segmentCount - 1;
-  const lastStop = stopToCoordinate(stops.at(-1)!);
-  const previousStop = stopToCoordinate(stops[lastSegmentIndex]);
-  const overviewZoom = getOverviewZoom(
-    haversineDistanceKm(previousStop, lastStop),
-  );
+  const lastSegment = segments[segments.length - 1];
 
   return {
-    center: lastStop,
-    currentSegment: lastSegmentIndex,
+    center: lastSegment.end,
+    currentSegment: segments.length - 1,
+    phase: "end",
     pitch: 0,
     routeProgress: 1,
-    zoom: getArrivalZoom(overviewZoom),
+    zoom: lastSegment.arrivalZoom,
   };
 };
 
 export const TravelMapJourney = ({
+  legModes,
   resolvedStops,
 }: TravelMapJourneyProps) => {
   const stops = resolvedStops ?? [];
+  const normalizedLegModes = useMemo(() => {
+    return normalizeLegModes(legModes, stops.length);
+  }, [legModes, stops.length]);
+  const journeySegments = useMemo(() => {
+    return buildJourneyPlan(stops, normalizedLegModes);
+  }, [normalizedLegModes, stops]);
+  const markers = useMemo(() => buildMarkers(stops), [stops]);
   const frame = useCurrentFrame();
   const {width, height} = useVideoConfig();
   const ref = useRef<HTMLDivElement>(null);
   const hasConfiguredMap = Boolean(mapboxToken);
   const hasLoadedStyle = useRef(false);
-  const markers = useMemo(() => buildMarkers(stops), [stops]);
 
   const {delayRender, continueRender, cancelRender} = useDelayRender();
   const [handle] = useState(() => delayRender("Loading map..."));
   const [map, setMap] = useState<Map | null>(null);
 
-  const mapStyle = useMemo<React.CSSProperties>(() => {
+  const mapStyle = useMemo<CSSProperties>(() => {
     return {
       height,
       inset: 0,
@@ -351,28 +634,24 @@ export const TravelMapJourney = ({
       return;
     }
 
-    if (stops.length < 2) {
+    if (journeySegments.length === 0) {
       continueRender(handle);
       return;
     }
 
-    const first = stopToCoordinate(stops[0]);
-    const second = stopToCoordinate(stops[1]);
-    const initialOverviewZoom = getOverviewZoom(
-      haversineDistanceKm(first, second),
-    );
+    const initialState = getAnimationState(0, journeySegments);
 
     const mapInstance = new Map({
       attributionControl: false,
       bearing: 0,
-      center: first,
+      center: wrapCoordinate(initialState.center),
       container: ref.current,
       fadeDuration: 0,
       interactive: false,
-      pitch: 22,
+      pitch: initialState.pitch,
       preserveDrawingBuffer: true,
       style: "mapbox://styles/mapbox/standard",
-      zoom: getFocusZoom(initialOverviewZoom),
+      zoom: initialState.zoom,
     });
 
     mapInstance.on("style.load", () => {
@@ -386,26 +665,63 @@ export const TravelMapJourney = ({
         mapInstance.setConfigProperty("basemap", feature, false);
       }
 
-      mapInstance.setConfigProperty("basemap", "colorMotorways", "transparent");
-      mapInstance.setConfigProperty("basemap", "colorRoads", "transparent");
-      mapInstance.setConfigProperty("basemap", "colorTrunks", "transparent");
+      mapInstance.setConfigProperty("basemap", "colorMotorways", "rgba(0, 0, 0, 0)");
+      mapInstance.setConfigProperty("basemap", "colorRoads", "rgba(0, 0, 0, 0)");
+      mapInstance.setConfigProperty("basemap", "colorTrunks", "rgba(0, 0, 0, 0)");
 
-      mapInstance.addSource("route", {
+      mapInstance.addSource("completed-routes", {
         type: "geojson",
-        data: routeFeature(stops, 0, 0),
+        data: buildCompletedRoutes(journeySegments, 0),
       });
 
       mapInstance.addLayer({
-        id: "route-line",
+        id: "completed-routes-line",
         type: "line",
-        source: "route",
+        source: "completed-routes",
         layout: {
           "line-cap": "round",
           "line-join": "round",
         },
         paint: {
-          "line-color": "#f97316",
-          "line-width": 8,
+          "line-color": ACTIVE_ROUTE_COLOR,
+          "line-opacity": 0.34,
+          "line-width": COMPLETED_ROUTE_WIDTH,
+        },
+      });
+
+      mapInstance.addSource("active-route", {
+        type: "geojson",
+        data: buildActiveRoute(journeySegments, 0, 0, "opening"),
+      });
+
+      mapInstance.addLayer({
+        id: "active-route-line",
+        type: "line",
+        source: "active-route",
+        layout: {
+          "line-cap": "round",
+          "line-join": "round",
+        },
+        paint: {
+          "line-color": ACTIVE_ROUTE_COLOR,
+          "line-width": ACTIVE_ROUTE_WIDTH,
+        },
+      });
+
+      mapInstance.addSource("head-point", {
+        type: "geojson",
+        data: buildHeadPoint(journeySegments, 0, 0, "opening"),
+      });
+
+      mapInstance.addLayer({
+        id: "head-point-layer",
+        type: "circle",
+        source: "head-point",
+        paint: {
+          "circle-color": ACTIVE_ROUTE_COLOR,
+          "circle-radius": HEAD_RADIUS,
+          "circle-stroke-color": "#fff7ed",
+          "circle-stroke-width": 3,
         },
       });
 
@@ -419,9 +735,16 @@ export const TravelMapJourney = ({
         type: "circle",
         source: "stops",
         paint: {
-          "circle-color": "#f97316",
-          "circle-radius": 13,
-          "circle-stroke-color": "#fff7ed",
+          "circle-color": "#fff7ed",
+          "circle-radius": [
+            "case",
+            ["boolean", ["get", "isStart"], false],
+            15,
+            ["boolean", ["get", "isEnd"], false],
+            15,
+            12,
+          ],
+          "circle-stroke-color": "#09111d",
           "circle-stroke-width": 4,
         },
       });
@@ -434,8 +757,8 @@ export const TravelMapJourney = ({
           "text-anchor": "top",
           "text-field": ["get", "title"],
           "text-font": ["DIN Pro Bold", "Arial Unicode MS Bold"],
-          "text-offset": [0, 0.88],
-          "text-size": 40,
+          "text-offset": [0, 0.82],
+          "text-size": 38,
         },
         paint: {
           "text-color": "#fff7ed",
@@ -460,46 +783,66 @@ export const TravelMapJourney = ({
     continueRender,
     handle,
     hasConfiguredMap,
+    journeySegments,
     markers,
-    stops,
   ]);
 
   useEffect(() => {
-    if (!map || !hasLoadedStyle.current || stops.length < 2) {
+    if (!map || !hasLoadedStyle.current || journeySegments.length === 0) {
       return;
     }
 
     const animationHandle = delayRender("Animating map...");
-    const animationState = getAnimationState(frame, stops);
+    const animationState = getAnimationState(frame, journeySegments);
 
     map.jumpTo({
       bearing: 0,
-      center: animationState.center,
+      center: wrapCoordinate(animationState.center),
       pitch: animationState.pitch,
       zoom: animationState.zoom,
     });
 
-    const source = map.getSource("route") as mapboxgl.GeoJSONSource | undefined;
-    if (source) {
-      source.setData(
-        routeFeature(
-          stops,
-          animationState.currentSegment,
-          animationState.routeProgress,
-        ),
-      );
-    }
+    const completedRoutes = map.getSource("completed-routes") as
+      | mapboxgl.GeoJSONSource
+      | undefined;
+    completedRoutes?.setData(
+      buildCompletedRoutes(journeySegments, animationState.currentSegment),
+    );
+
+    const activeRoute = map.getSource("active-route") as
+      | mapboxgl.GeoJSONSource
+      | undefined;
+    activeRoute?.setData(
+      buildActiveRoute(
+        journeySegments,
+        animationState.currentSegment,
+        animationState.routeProgress,
+        animationState.phase,
+      ),
+    );
+
+    const headPoint = map.getSource("head-point") as
+      | mapboxgl.GeoJSONSource
+      | undefined;
+    headPoint?.setData(
+      buildHeadPoint(
+        journeySegments,
+        animationState.currentSegment,
+        animationState.routeProgress,
+        animationState.phase,
+      ),
+    );
 
     map.once("idle", () => {
       continueRender(animationHandle);
     });
-  }, [continueRender, delayRender, frame, map, stops]);
+  }, [continueRender, delayRender, frame, journeySegments, map]);
 
   if (!hasConfiguredMap) {
     return <MissingTokenMessage />;
   }
 
-  if (stops.length < 2) {
+  if (journeySegments.length === 0) {
     return (
       <AbsoluteFill
         style={{
