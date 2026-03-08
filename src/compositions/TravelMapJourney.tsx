@@ -83,6 +83,15 @@ const HIDE_FEATURES = [
 
 const WAYPOINT_HANDOFF_FRAMES = 8;
 const WAYPOINT_ROUTE_START_PROGRESS = 0.04;
+const BADGE_SIZE = 128;
+const TRANSPORT_EMOJIS: Record<TransportMode, string> = {
+  bike: "🚲",
+  car: "🚗",
+  plane: "✈️",
+  ship: "🚢",
+  train: "🚆",
+  walk: "🚶",
+};
 
 const mapboxToken = process.env.REMOTION_MAPBOX_TOKEN;
 
@@ -96,6 +105,10 @@ const lerp = (start: number, end: number, progress: number) => {
 
 const clamp = (value: number, min: number, max: number) => {
   return Math.min(max, Math.max(min, value));
+};
+
+const getTransportBadgeId = (mode: TransportMode) => {
+  return `transport-badge-${mode}`;
 };
 
 const wrapLongitude = (value: number) => {
@@ -304,9 +317,45 @@ const COMPLETED_ROUTE_WIDTH = createModeExpression((mode) => {
   return Math.max(3.6, getTransportProfile(mode).lineWidth * 0.68);
 });
 
-const HEAD_RADIUS = createModeExpression((mode) => {
-  return Math.max(10, getTransportProfile(mode).lineWidth * 1.55);
+const HEAD_BADGE_SCALE = createModeExpression((mode) => {
+  return clamp(0.72 + (getTransportProfile(mode).lineWidth - 5.5) * 0.036, 0.72, 0.84);
 });
+
+const createTransportBadgeImage = (mode: TransportMode) => {
+  const canvas = document.createElement("canvas");
+  canvas.width = BADGE_SIZE;
+  canvas.height = BADGE_SIZE;
+
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return new ImageData(BADGE_SIZE, BADGE_SIZE);
+  }
+
+  const emoji = TRANSPORT_EMOJIS[mode];
+  const center = BADGE_SIZE / 2;
+  const radius = 42;
+
+  context.clearRect(0, 0, BADGE_SIZE, BADGE_SIZE);
+  context.shadowColor = "rgba(6, 11, 20, 0.22)";
+  context.shadowBlur = 12;
+  context.shadowOffsetY = 6;
+  context.beginPath();
+  context.arc(center, center, radius, 0, Math.PI * 2);
+  context.fillStyle = "#fff7ed";
+  context.fill();
+  context.shadowColor = "transparent";
+  context.lineWidth = 3;
+  context.strokeStyle = "rgba(15, 23, 42, 0.16)";
+  context.stroke();
+  context.font =
+    '54px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", system-ui, sans-serif';
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillStyle = "#111827";
+  context.fillText(emoji, center, center + 2);
+
+  return context.getImageData(0, 0, BADGE_SIZE, BADGE_SIZE);
+};
 
 const buildMarkers = (stops: ResolvedStop[]) => {
   return {
@@ -413,6 +462,7 @@ const buildHeadPoint = (
       {
         type: "Feature" as const,
         properties: {
+          badge: getTransportBadgeId(segment.mode),
           mode: segment.mode,
         },
         geometry: {
@@ -789,6 +839,15 @@ export const TravelMapJourney = ({
       mapInstance.setConfigProperty("basemap", "colorRoads", "rgba(0, 0, 0, 0)");
       mapInstance.setConfigProperty("basemap", "colorTrunks", "rgba(0, 0, 0, 0)");
 
+      for (const mode of transportModes) {
+        const badgeId = getTransportBadgeId(mode);
+        if (!mapInstance.hasImage(badgeId)) {
+          mapInstance.addImage(badgeId, createTransportBadgeImage(mode), {
+            pixelRatio: 2,
+          });
+        }
+      }
+
       mapInstance.addSource("completed-routes", {
         type: "geojson",
         data: buildCompletedRoutes(journeySegments, 0),
@@ -834,14 +893,16 @@ export const TravelMapJourney = ({
       });
 
       mapInstance.addLayer({
-        id: "head-point-layer",
-        type: "circle",
+        id: "head-badge-layer",
+        type: "symbol",
         source: "head-point",
-        paint: {
-          "circle-color": ACTIVE_ROUTE_COLOR,
-          "circle-radius": HEAD_RADIUS,
-          "circle-stroke-color": "#fff7ed",
-          "circle-stroke-width": 3,
+        layout: {
+          "icon-allow-overlap": true,
+          "icon-anchor": "center",
+          "icon-ignore-placement": true,
+          "icon-image": ["get", "badge"],
+          "icon-pitch-alignment": "viewport",
+          "icon-size": HEAD_BADGE_SCALE,
         },
       });
 
@@ -859,13 +920,13 @@ export const TravelMapJourney = ({
           "circle-radius": [
             "case",
             ["boolean", ["get", "isStart"], false],
-            15,
+            9,
             ["boolean", ["get", "isEnd"], false],
-            15,
-            12,
+            9,
+            7,
           ],
           "circle-stroke-color": "#09111d",
-          "circle-stroke-width": 4,
+          "circle-stroke-width": 2.25,
         },
       });
 
@@ -877,13 +938,13 @@ export const TravelMapJourney = ({
           "text-anchor": "top",
           "text-field": ["get", "title"],
           "text-font": ["DIN Pro Bold", "Arial Unicode MS Bold"],
-          "text-offset": [0, 0.82],
-          "text-size": 38,
+          "text-offset": [0, 0.58],
+          "text-size": 25,
         },
         paint: {
           "text-color": "#fff7ed",
           "text-halo-color": "rgba(6, 11, 20, 0.9)",
-          "text-halo-width": 2,
+          "text-halo-width": 1.6,
         },
       });
     });

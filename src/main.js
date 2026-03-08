@@ -4,6 +4,8 @@ import {createRemotionJourneyScene} from "./remotionJourneyScene";
 const playBtn = document.getElementById("playBtn");
 const pauseBtn = document.getElementById("pauseBtn");
 const exportBtn = document.getElementById("exportBtn");
+const speedBtn = document.getElementById("speedBtn");
+const speedMenu = document.getElementById("speedMenu");
 const basemapBtn = document.getElementById("basemapBtn");
 const generateBtn = document.getElementById("generateBtn");
 const addDestBtn = document.getElementById("addDestBtn");
@@ -23,6 +25,7 @@ let paused = false;
 let building = false;
 
 const MODES = ["plane", "train", "car", "ship", "bike", "walk"];
+const SPEED_OPTIONS = [1, 2, 4];
 const MODE_EMOJI = {
   plane: "✈️",
   train: "🚆",
@@ -39,6 +42,42 @@ let dropRow = null;
 let dropPosition = "after";
 let latestPlaybackBlob = null;
 let latestPlaybackMimeType = "";
+let playbackRate = 1;
+
+function formatPlaybackRate(rate) {
+  return `x${Number.isInteger(rate) ? rate : rate.toFixed(1)}`;
+}
+
+function closeSpeedMenu() {
+  if (!speedBtn || !speedMenu) return;
+  speedBtn.setAttribute("aria-expanded", "false");
+  speedMenu.hidden = true;
+}
+
+function updateSpeedControlUI() {
+  if (speedBtn) {
+    const label = speedBtn.querySelector(".speed-btn-label");
+    if (label) {
+      label.textContent = formatPlaybackRate(playbackRate);
+    }
+  }
+
+  if (!speedMenu) return;
+  speedMenu.querySelectorAll(".speed-option").forEach((option) => {
+    const rate = Number(option.dataset.rate);
+    const active = rate === playbackRate;
+    option.classList.toggle("active", active);
+    option.setAttribute("aria-checked", active ? "true" : "false");
+  });
+}
+
+function setPlaybackRate(nextRate) {
+  if (!SPEED_OPTIONS.includes(nextRate)) return;
+  playbackRate = nextRate;
+  scene?.setPlaybackRate?.(playbackRate);
+  updateSpeedControlUI();
+  closeSpeedMenu();
+}
 
 function updateSidebarOverflowState() {
   if (!sidebarCard || !routeTimeline || !sidebarActions) return;
@@ -750,7 +789,7 @@ async function initScene(stops, legModes) {
   generateBtn.disabled = true;
   generateBtn.textContent = "Generating...";
   if (scene) scene.destroy();
-  scene = await createRemotionJourneyScene("globeContainer", stops, legModes);
+  scene = await createRemotionJourneyScene("globeContainer", stops, legModes, playbackRate);
 
   hideArrival();
   latestPlaybackBlob = null;
@@ -934,6 +973,34 @@ pauseBtn.addEventListener("click", () => {
 exportBtn.addEventListener("click", exportVideo);
 basemapBtn?.addEventListener("click", cycleBasemap);
 
+speedBtn?.addEventListener("click", () => {
+  if (!speedMenu) return;
+  const nextExpanded = speedBtn.getAttribute("aria-expanded") !== "true";
+  speedBtn.setAttribute("aria-expanded", nextExpanded ? "true" : "false");
+  speedMenu.hidden = !nextExpanded;
+});
+
+speedMenu?.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const button = target?.closest(".speed-option");
+  if (!(button instanceof HTMLButtonElement)) return;
+  setPlaybackRate(Number(button.dataset.rate));
+});
+
+document.addEventListener("click", (event) => {
+  if (!speedMenu || !speedBtn) return;
+  if (speedMenu.hidden) return;
+  const target = event.target instanceof Node ? event.target : null;
+  if (target && (speedMenu.contains(target) || speedBtn.contains(target))) return;
+  closeSpeedMenu();
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    closeSpeedMenu();
+  }
+});
+
 addDestBtn?.addEventListener("click", addDestinationRow);
 
 document.querySelectorAll('#routeTimeline .timeline-row input[type="text"]').forEach(bindRouteInput);
@@ -943,6 +1010,7 @@ initSidebarOverflowState();
 window.addEventListener("beforeunload", () => scene?.destroy());
 initModeToggles();
 updateBasemapButtonUI();
+updateSpeedControlUI();
 
 initScene(
   [

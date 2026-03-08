@@ -149,6 +149,27 @@
             </svg>
             Export
           </button>
+          <div class="speed-control">
+            <button
+              id="speedBtn"
+              class="player-btn speed-btn"
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded="false"
+              aria-controls="speedMenu"
+            >
+              <span class="speed-btn-label">x1</span>
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </button>
+            <div id="speedMenu" class="speed-menu" role="menu" hidden>
+              <button type="button" class="speed-option active" data-rate="1" role="menuitemradio" aria-checked="true">x1</button>
+              <button type="button" class="speed-option" data-rate="2" role="menuitemradio" aria-checked="false">x2</button>
+              <button type="button" class="speed-option" data-rate="4" role="menuitemradio" aria-checked="false">x4</button>
+            </div>
+          </div>
           <button id="basemapBtn" class="player-btn basemap-btn" type="button" data-basemap="satellite">底图 · 卫星</button>
         </div>
       </section>

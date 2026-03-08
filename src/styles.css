@@ -655,6 +655,64 @@ body,
   flex-shrink: 0;
 }
 
+.speed-control {
+  position: relative;
+}
+
+.speed-btn {
+  min-width: 72px;
+  justify-content: center;
+}
+
+.speed-btn[aria-expanded="true"] {
+  background: var(--accent-subtle);
+  color: var(--text);
+}
+
+.speed-btn-label {
+  min-width: 24px;
+}
+
+.speed-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  display: grid;
+  gap: 4px;
+  min-width: 72px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 247, 252, 0.96));
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.12);
+  backdrop-filter: blur(14px);
+  z-index: 4;
+}
+
+.speed-menu[hidden] {
+  display: none;
+}
+
+.speed-option {
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  padding: 8px 10px;
+  border-radius: 14px;
+  cursor: pointer;
+}
+
+.speed-option:hover,
+.speed-option.active {
+  background: var(--accent-subtle);
+  color: var(--text);
+}
+
 .basemap-btn {
   font-weight: 600;
 }
@@ -745,6 +803,11 @@ body,
   .player-btn {
     font-size: 12px;
     padding: 6px 12px;
+  }
+
+  .speed-menu {
+    min-width: 68px;
+    border-radius: 16px;
   }
 }
 

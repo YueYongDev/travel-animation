@@ -1,6 +1,9 @@
 import {Player, type PlayerRef} from "@remotion/player";
 import React, {
   forwardRef,
+  useEffect,
+  useMemo,
+  useState,
   useImperativeHandle,
   useRef,
 } from "react";
@@ -29,52 +32,103 @@ type ArrivalPayload = {
 };
 
 type SceneController = {
+  getCurrentFrame: () => number;
   pause: () => void;
   play: () => void;
+  setPlaybackRate: (rate: number) => void;
   seekTo: (frame: number) => void;
 };
 
 type SceneBridgeProps = {
   durationInFrames: number;
+  initialPlaybackRate: number;
   inputProps: TravelMapJourneyProps;
 };
 
 type ScheduledEvent = {
   callback: () => void;
-  delayMs: number;
+  frame: number;
   fired: boolean;
-  startedAt: number;
   timeoutId: number | null;
 };
 
 const SceneBridge = forwardRef<SceneController, SceneBridgeProps>(
-  ({durationInFrames, inputProps}, ref) => {
+  ({durationInFrames, initialPlaybackRate, inputProps}, ref) => {
     const playerRef = useRef<PlayerRef | null>(null);
+    const hostRef = useRef<HTMLDivElement | null>(null);
+    const [playbackRate, setPlaybackRate] = useState(initialPlaybackRate);
+    const [containerSize, setContainerSize] = useState({
+      height: COMPOSITION_HEIGHT,
+      width: COMPOSITION_WIDTH,
+    });
+
+    useEffect(() => {
+      const element = hostRef.current;
+      if (!element || typeof ResizeObserver === "undefined") {
+        return;
+      }
+
+      const updateSize = () => {
+        setContainerSize({
+          height: Math.max(1, element.clientHeight),
+          width: Math.max(1, element.clientWidth),
+        });
+      };
+
+      updateSize();
+
+      const observer = new ResizeObserver(updateSize);
+      observer.observe(element);
+
+      return () => observer.disconnect();
+    }, []);
+
+    const coverScale = useMemo(() => {
+      return Math.max(
+        containerSize.width / COMPOSITION_WIDTH,
+        containerSize.height / COMPOSITION_HEIGHT,
+      );
+    }, [containerSize.height, containerSize.width]);
 
     useImperativeHandle(ref, () => {
       return {
+        getCurrentFrame: () => playerRef.current?.getCurrentFrame() ?? 0,
         pause: () => playerRef.current?.pause(),
         play: () => playerRef.current?.play(),
+        setPlaybackRate: (rate: number) => setPlaybackRate(rate),
         seekTo: (frame: number) => playerRef.current?.seekTo(frame),
       };
     }, []);
 
     return (
-      <div className="journey-preview-host">
-        <Player
-          ref={playerRef}
-          component={TravelMapJourney}
-          compositionHeight={COMPOSITION_HEIGHT}
-          compositionWidth={COMPOSITION_WIDTH}
-          controls={false}
-          durationInFrames={durationInFrames}
-          fps={COMPOSITION_FPS}
-          inputProps={inputProps}
-          loop={false}
-          moveToBeginningWhenEnded
-          showVolumeControls={false}
-          style={{height: "100%", width: "100%"}}
-        />
+      <div ref={hostRef} className="journey-preview-host">
+        <div
+          style={{
+            height: COMPOSITION_HEIGHT,
+            left: "50%",
+            position: "absolute",
+            top: "50%",
+            transform: `translate(-50%, -50%) scale(${coverScale})`,
+            transformOrigin: "center center",
+            width: COMPOSITION_WIDTH,
+          }}
+        >
+          <Player
+            ref={playerRef}
+            component={TravelMapJourney}
+            compositionHeight={COMPOSITION_HEIGHT}
+            compositionWidth={COMPOSITION_WIDTH}
+            controls={false}
+            durationInFrames={durationInFrames}
+            fps={COMPOSITION_FPS}
+            inputProps={inputProps}
+            loop={false}
+            moveToBeginningWhenEnded
+            playbackRate={playbackRate}
+            showVolumeControls={false}
+            style={{height: COMPOSITION_HEIGHT, width: COMPOSITION_WIDTH}}
+          />
+        </div>
       </div>
     );
   },
@@ -151,6 +205,7 @@ export const createRemotionJourneyScene = async (
   containerId: string,
   stops: Stop[],
   legModes: readonly TransportMode[] = [],
+  playbackRate = 1,
 ) => {
   const container = document.getElementById(containerId);
 
@@ -180,6 +235,7 @@ export const createRemotionJourneyScene = async (
     <SceneBridge
       ref={sceneRef}
       durationInFrames={durationInFrames}
+      initialPlaybackRate={playbackRate}
       inputProps={inputProps}
     />,
   );
@@ -187,10 +243,10 @@ export const createRemotionJourneyScene = async (
   let playResolve: (() => void) | null = null;
   let endTimeoutId: number | null = null;
   let scheduledEvents: ScheduledEvent[] = [];
-  let remainingPlaybackMs = (durationInFrames / COMPOSITION_FPS) * 1000;
-  let playStartedAt = 0;
   let isPaused = false;
+  let isPlaying = false;
   let latestArrivalHandler: ((payload: ArrivalPayload) => void) | undefined;
+  let currentPlaybackRate = playbackRate;
 
   const clearTimers = () => {
     if (endTimeoutId !== null) {
@@ -206,38 +262,53 @@ export const createRemotionJourneyScene = async (
     }
   };
 
+  const getCurrentFrame = () => {
+    return Math.floor(sceneRef.current?.getCurrentFrame() ?? 0);
+  };
+
+  const getDelayFromFrame = (frame: number, fromFrame: number) => {
+    const remainingFrames = Math.max(0, frame - fromFrame);
+    return (remainingFrames / COMPOSITION_FPS / currentPlaybackRate) * 1000;
+  };
+
   const finishPlayback = () => {
     clearTimers();
-    remainingPlaybackMs = (durationInFrames / COMPOSITION_FPS) * 1000;
     isPaused = false;
+    isPlaying = false;
     playResolve?.();
     playResolve = null;
   };
 
-  const scheduleTimeouts = () => {
-    playStartedAt = performance.now();
-    endTimeoutId = window.setTimeout(finishPlayback, remainingPlaybackMs);
+  const scheduleTimeouts = (fromFrame: number) => {
+    endTimeoutId = window.setTimeout(
+      finishPlayback,
+      getDelayFromFrame(durationInFrames, fromFrame),
+    );
 
     for (const event of scheduledEvents) {
       if (event.fired) {
         continue;
       }
 
-      event.startedAt = performance.now();
+      if (event.frame <= fromFrame) {
+        event.fired = true;
+        event.callback();
+        continue;
+      }
+
       event.timeoutId = window.setTimeout(() => {
         event.fired = true;
         event.timeoutId = null;
         event.callback();
-      }, event.delayMs);
+      }, getDelayFromFrame(event.frame, fromFrame));
     }
   };
 
   const resetScheduledEvents = () => {
     scheduledEvents = buildArrivalEvents(stops, normalizedLegModes).map((event) => ({
       callback: () => latestArrivalHandler?.(event.payload),
-      delayMs: (event.frame / COMPOSITION_FPS) * 1000,
+      frame: event.frame,
       fired: false,
-      startedAt: 0,
       timeoutId: null,
     }));
   };
@@ -250,24 +321,7 @@ export const createRemotionJourneyScene = async (
     sceneRef.current?.pause();
     clearTimers();
     isPaused = true;
-
-    if (playStartedAt > 0) {
-      remainingPlaybackMs = Math.max(
-        0,
-        remainingPlaybackMs - (performance.now() - playStartedAt),
-      );
-    }
-
-    for (const event of scheduledEvents) {
-      if (event.fired || event.startedAt === 0) {
-        continue;
-      }
-
-      event.delayMs = Math.max(
-        0,
-        event.delayMs - (performance.now() - event.startedAt),
-      );
-    }
+    isPlaying = false;
   };
 
   const resume = () => {
@@ -277,7 +331,8 @@ export const createRemotionJourneyScene = async (
 
     sceneRef.current?.play();
     isPaused = false;
-    scheduleTimeouts();
+    isPlaying = true;
+    scheduleTimeouts(getCurrentFrame());
   };
 
   const getCaptureCanvas = () => {
@@ -296,19 +351,30 @@ export const createRemotionJourneyScene = async (
     pause,
     play: (onArrival?: (payload: ArrivalPayload) => void) => {
       clearTimers();
-      remainingPlaybackMs = (durationInFrames / COMPOSITION_FPS) * 1000;
       latestArrivalHandler = onArrival;
       resetScheduledEvents();
       sceneRef.current?.seekTo(0);
       sceneRef.current?.play();
       isPaused = false;
-      scheduleTimeouts();
+      isPlaying = true;
+      scheduleTimeouts(0);
 
       return new Promise<void>((resolve) => {
         playResolve = resolve;
       });
     },
     resume,
+    setPlaybackRate: (rate: number) => {
+      currentPlaybackRate = rate;
+      sceneRef.current?.setPlaybackRate(rate);
+
+      if (!isPlaying || isPaused) {
+        return;
+      }
+
+      clearTimers();
+      scheduleTimeouts(getCurrentFrame());
+    },
     setBasemap: () => "standard",
     viewer: {
       get canvas() {
