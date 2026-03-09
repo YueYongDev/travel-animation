@@ -13,6 +13,7 @@ const arrivalCard = document.getElementById("arrivalCard");
 const arrivalCity = document.getElementById("arrivalCity");
 const arrivalCountry = document.getElementById("arrivalCountry");
 const arrivalKm = document.getElementById("arrivalKm");
+const previewRouteLabel = document.getElementById("previewRouteLabel");
 const globeContainer = document.getElementById("globeContainer");
 const routeTimeline = document.getElementById("routeTimeline");
 const sidebarCard = document.querySelector(".sidebar-card");
@@ -46,10 +47,113 @@ function formatPlaybackRate(rate) {
   return `x${Number.isInteger(rate) ? rate : rate.toFixed(1)}`;
 }
 
+function formatDistanceKm(km) {
+  return `${Math.round(km).toLocaleString("en-US")} km`;
+}
+
+function calculateDistanceKm(from, to) {
+  const toRadians = (value) => (value * Math.PI) / 180;
+  const earthRadiusKm = 6371;
+  const latDelta = toRadians(to.lat - from.lat);
+  const lonDelta = toRadians(to.lon - from.lon);
+  const lat1 = toRadians(from.lat);
+  const lat2 = toRadians(to.lat);
+
+  const haversine =
+    Math.sin(latDelta / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(lonDelta / 2) ** 2;
+
+  return 2 * earthRadiusKm * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+}
+
+function getDisplayPlaceName(text) {
+  return text.split(",")[0]?.trim() || text.trim();
+}
+
+function getTimelineLabels() {
+  return getTimelineRows()
+    .map((row) => row.querySelector('input[type="text"]')?.value.trim() || "")
+    .filter(Boolean)
+    .map(getDisplayPlaceName);
+}
+
+function updateRouteOverview() {
+  const labels = getTimelineLabels();
+  const stopCount = labels.length;
+
+  if (!stopCount) {
+    if (previewRouteLabel) previewRouteLabel.textContent = "WAITING FOR ROUTE";
+    updateLegDistanceLabels();
+    return;
+  }
+
+  if (stopCount === 1) {
+    if (previewRouteLabel) previewRouteLabel.textContent = labels[0].toUpperCase();
+    updateLegDistanceLabels();
+    return;
+  }
+
+  const routeLabel = `${labels[0]} → ${labels.at(-1)}`.toUpperCase();
+  if (previewRouteLabel) previewRouteLabel.textContent = routeLabel;
+  updateLegDistanceLabels();
+}
+
+function createTimelineRow(role, placeholder, state = {}) {
+  const row = document.createElement("div");
+  row.className = "timeline-row";
+  row.dataset.role = role;
+
+  const pinClass = role === "start" ? "pin start-pin" : role === "end" ? "pin end-pin" : "pin";
+  row.innerHTML = `
+    <span class="${pinClass}" aria-hidden="true"></span>
+    <div class="row-input-wrap">
+      <input type="text" placeholder="${placeholder}" />
+    </div>
+  `;
+
+  const input = row.querySelector('input[type="text"]');
+  if (input) {
+    input.value = state.value || "";
+    input.dataset.resolvedQuery = state.resolvedQuery || input.value.trim();
+    if (state.coord) input.dataset.coord = state.coord;
+    if (state.country) input.dataset.country = state.country;
+  }
+
+  return row;
+}
+
 function closeSpeedMenu() {
   if (!speedBtn || !speedMenu) return;
   speedBtn.setAttribute("aria-expanded", "false");
   speedMenu.hidden = true;
+}
+
+function updateLegDistanceLabels() {
+  const rows = getTimelineRows();
+  const connectors = Array.from(routeTimeline?.querySelectorAll(".timeline-connector") || []);
+
+  connectors.forEach((connector, index) => {
+    const label = connector.querySelector(".leg-distance");
+    const fromInput = rows[index]?.querySelector('input[type="text"]');
+    const toInput = rows[index + 1]?.querySelector('input[type="text"]');
+    const fromCoord = parseCoord(fromInput?.dataset.coord || "");
+    const toCoord = parseCoord(toInput?.dataset.coord || "");
+
+    if (!label) return;
+
+    const distanceReady = connector.dataset.distanceReady === "true";
+
+    if (!fromCoord || !toCoord || !distanceReady) {
+      label.hidden = true;
+      label.textContent = "";
+      connector.classList.remove("has-distance");
+      return;
+    }
+
+    label.hidden = false;
+    label.textContent = formatDistanceKm(calculateDistanceKm(fromCoord, toCoord));
+    connector.classList.add("has-distance");
+  });
 }
 
 function updateSpeedControlUI() {
@@ -179,6 +283,8 @@ function initModeToggles() {
         const connector = option.closest(".timeline-connector");
         const toggle = connector?.querySelector(".mode-toggle");
         if (toggle) setModeForToggle(toggle, option.dataset.mode);
+        if (connector) connector.dataset.distanceReady = "true";
+        updateLegDistanceLabels();
         if (connector) closeAllModePickers(connector);
         return;
       }
@@ -225,6 +331,13 @@ function initModeToggles() {
       selectEl.value = next;
     });
   });
+}
+
+function enableInitialLegDistances() {
+  routeTimeline?.querySelectorAll(".timeline-connector").forEach((connector) => {
+    connector.dataset.distanceReady = "true";
+  });
+  updateLegDistanceLabels();
 }
 
 function parseCoord(text) {
@@ -353,6 +466,8 @@ function applyAddressSuggestion(input, suggestion) {
   input.dataset.country = suggestion.country;
   input.dataset.resolvedQuery = suggestion.label;
   closeAddressSuggestions(input);
+  updateRouteOverview();
+  updateLegDistanceLabels();
 }
 
 function renderAddressSuggestions(input) {
@@ -468,6 +583,7 @@ async function resolveStopFromInput(input) {
   const cachedCoord = parseCoord(coordText);
 
   if (cachedCoord && resolvedQuery === query) {
+    updateLegDistanceLabels();
     return {
       city: getCityFromQuery(query),
       country: sanitizeCountry(input.dataset.country || "-"),
@@ -482,6 +598,7 @@ async function resolveStopFromInput(input) {
   input.dataset.coord = `${geocoded.lon},${geocoded.lat}`;
   input.dataset.country = geocoded.country;
   input.dataset.resolvedQuery = query;
+  updateLegDistanceLabels();
   return geocoded;
 }
 
@@ -495,6 +612,8 @@ function bindRouteInput(input) {
     if (input.value.trim() === input.dataset.resolvedQuery) return;
     delete input.dataset.coord;
     delete input.dataset.country;
+    updateRouteOverview();
+    updateLegDistanceLabels();
   });
 }
 
@@ -512,6 +631,7 @@ async function collectStops() {
   }
 
   if (stops.length < 2) throw new Error("至少需要 2 个点位");
+  updateLegDistanceLabels();
   return stops;
 }
 
@@ -592,6 +712,8 @@ function reorderRowsByIndex(fromIndex, toIndex) {
   states.splice(toIndex, 0, moved);
 
   rows.forEach((row, index) => writeRowState(row, states[index]));
+  updateRouteOverview();
+  updateLegDistanceLabels();
 }
 
 function clearDropHints() {
@@ -676,34 +798,17 @@ function initTimelineDragSort() {
 }
 
 function createWaypointRow(index) {
-  const row = document.createElement("div");
-  row.className = "timeline-row";
-  row.dataset.role = "waypoint";
-  row.innerHTML = `
-    <span class="pin" aria-hidden="true"></span>
-    <div class="row-input-wrap">
-      <input type="text" placeholder="Waypoint ${index}" />
-    </div>
-  `;
-  return row;
+  return createTimelineRow("waypoint", `Waypoint ${index}`);
 }
 
 function createEndRow() {
-  const row = document.createElement("div");
-  row.className = "timeline-row";
-  row.dataset.role = "end";
-  row.innerHTML = `
-    <span class="pin end-pin" aria-hidden="true"></span>
-    <div class="row-input-wrap">
-      <input type="text" placeholder="Destination" />
-    </div>
-  `;
-  return row;
+  return createTimelineRow("end", "Destination");
 }
 
 function createTimelineConnector() {
   const connector = document.createElement("div");
   connector.className = "timeline-connector";
+  connector.dataset.distanceReady = "false";
   connector.innerHTML = `
     <div class="connector-line" aria-hidden="true"></div>
     <button type="button" class="mode-toggle" data-mode="plane" aria-label="Transport mode: plane">
@@ -751,6 +856,7 @@ function createTimelineConnector() {
       </svg>
     </button>
     <div class="connector-line" aria-hidden="true"></div>
+    <span class="leg-distance" hidden></span>
   `;
   const button = connector.querySelector(".mode-toggle");
   if (button) syncModeButton(button);
@@ -768,9 +874,10 @@ function addDestinationRow() {
 
   const connector = createTimelineConnector();
   const newEndRow = createEndRow();
+  const insertBeforeNode = addDestBtn && addDestBtn.parentElement === routeTimeline ? addDestBtn : null;
 
-  routeTimeline.appendChild(connector);
-  routeTimeline.appendChild(newEndRow);
+  routeTimeline.insertBefore(connector, insertBeforeNode);
+  routeTimeline.insertBefore(newEndRow, insertBeforeNode);
 
   const input = newEndRow.querySelector('input[type="text"]');
   bindTimelineRowDrag(newEndRow);
@@ -778,6 +885,8 @@ function addDestinationRow() {
     bindRouteInput(input);
     input.focus();
   }
+  updateRouteOverview();
+  updateLegDistanceLabels();
   requestAnimationFrame(updateSidebarOverflowState);
 }
 
@@ -799,7 +908,7 @@ async function initScene(stops, legModes) {
 
 function updateBasemapButtonUI() {
   if (!basemapBtn) return;
-  basemapBtn.textContent = "Remotion Preview";
+  basemapBtn.textContent = "REMOTION PREVIEW";
   basemapBtn.dataset.basemap = "preview";
   basemapBtn.disabled = true;
 }
@@ -813,7 +922,7 @@ async function run() {
   hideArrival();
   playing = true;
   playBtn.disabled = true;
-  playBtn.textContent = "Playing…";
+  playBtn.textContent = "Playing...";
 
   const canvas = scene.viewer?.canvas;
   const mimeType = getSupportedVideoMimeType();
@@ -915,7 +1024,7 @@ async function exportVideo() {
   }
 
   exportBtn.disabled = true;
-  exportBtn.textContent = "Exporting…";
+  exportBtn.textContent = "Exporting...";
 
   try {
     const usedType = latestPlaybackMimeType || mimeType;
@@ -990,8 +1099,10 @@ initSidebarOverflowState();
 
 window.addEventListener("beforeunload", () => scene?.destroy());
 initModeToggles();
+enableInitialLegDistances();
 updateBasemapButtonUI();
 updateSpeedControlUI();
+updateRouteOverview();
 
 initScene(
   [
