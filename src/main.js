@@ -1,5 +1,5 @@
 import "./styles.css";
-import {createRemotionJourneyScene} from "./remotionJourneyScene";
+import { createRemotionJourneyScene } from "./remotionJourneyScene";
 
 const AUTH_STORAGE_KEY = "trailframe.auth";
 
@@ -207,6 +207,9 @@ function createTimelineRow(role, placeholder, state = {}) {
     <div class="row-input-wrap">
       <input type="text" placeholder="${placeholder}" />
     </div>
+    <button type="button" class="row-delete-btn" aria-label="Remove stop" title="Remove">
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
   `;
 
   const input = row.querySelector('input[type="text"]');
@@ -215,6 +218,11 @@ function createTimelineRow(role, placeholder, state = {}) {
     input.dataset.resolvedQuery = state.resolvedQuery || input.value.trim();
     if (state.coord) input.dataset.coord = state.coord;
     if (state.country) input.dataset.country = state.country;
+  }
+
+  const deleteBtn = row.querySelector(".row-delete-btn");
+  if (deleteBtn) {
+    deleteBtn.addEventListener("click", () => removeDestinationRow(row));
   }
 
   return row;
@@ -316,7 +324,7 @@ function initSidebarOverflowState() {
   }
 
   if (document.fonts?.ready) {
-    document.fonts.ready.then(onChange).catch(() => {});
+    document.fonts.ready.then(onChange).catch(() => { });
   }
 
   requestAnimationFrame(onChange);
@@ -981,6 +989,59 @@ function createTimelineConnector() {
   return connector;
 }
 
+function syncDeleteButtons() {
+  const rows = getTimelineRows();
+  const canDelete = rows.length > 2;
+  rows.forEach((row) => {
+    row.classList.toggle("can-delete", canDelete);
+  });
+}
+
+function removeDestinationRow(row) {
+  if (!routeTimeline || !row) return;
+  const rows = getTimelineRows();
+  if (rows.length <= 2) return;
+
+  const index = rows.indexOf(row);
+  if (index < 0) return;
+
+  // Remove the adjacent connector:
+  // If not the first row, remove the connector BEFORE this row
+  // If the first row, remove the connector AFTER this row
+  const prevSibling = row.previousElementSibling;
+  const nextSibling = row.nextElementSibling;
+
+  if (prevSibling && prevSibling.classList.contains("timeline-connector")) {
+    prevSibling.remove();
+  } else if (nextSibling && nextSibling.classList.contains("timeline-connector")) {
+    nextSibling.remove();
+  }
+
+  row.remove();
+
+  // Re-assign roles: first row = start, last row = end, middle = waypoint
+  const remainingRows = getTimelineRows();
+  remainingRows.forEach((r, i) => {
+    const pin = r.querySelector(".pin");
+    if (i === 0) {
+      r.dataset.role = "start";
+      if (pin) { pin.classList.add("start-pin"); pin.classList.remove("end-pin"); }
+    } else if (i === remainingRows.length - 1) {
+      r.dataset.role = "end";
+      if (pin) { pin.classList.add("end-pin"); pin.classList.remove("start-pin"); }
+    } else {
+      r.dataset.role = "waypoint";
+      if (pin) { pin.classList.remove("start-pin", "end-pin"); }
+    }
+  });
+
+  syncDeleteButtons();
+  updateRouteOverview();
+  updateLegDistanceLabels();
+  syncGenerateButtonState();
+  requestAnimationFrame(updateSidebarOverflowState);
+}
+
 function addDestinationRow() {
   if (!routeTimeline) return;
   const endRow = routeTimeline.querySelector('.timeline-row[data-role="end"]');
@@ -998,6 +1059,7 @@ function addDestinationRow() {
       bindRouteInput(input);
       input.focus();
     }
+    syncDeleteButtons();
     updateRouteOverview();
     updateLegDistanceLabels();
     syncGenerateButtonState();
@@ -1022,6 +1084,7 @@ function addDestinationRow() {
     bindRouteInput(input);
     input.focus();
   }
+  syncDeleteButtons();
   updateRouteOverview();
   updateLegDistanceLabels();
   syncGenerateButtonState();
@@ -1259,6 +1322,11 @@ if (authState) {
   addDestBtn?.addEventListener("click", addDestinationRow);
 
   document.querySelectorAll('#routeTimeline .timeline-row input[type="text"]').forEach(bindRouteInput);
+  document.querySelectorAll('#routeTimeline .timeline-row').forEach((row) => {
+    const deleteBtn = row.querySelector('.row-delete-btn');
+    if (deleteBtn) deleteBtn.addEventListener('click', () => removeDestinationRow(row));
+  });
+  syncDeleteButtons();
   initTimelineDragSort();
   initSidebarOverflowState();
   syncAccountUI();

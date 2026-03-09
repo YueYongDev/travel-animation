@@ -5,23 +5,19 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TrailFrame Workspace | Route Planning</title>
-  <meta
-    name="description"
-    content="Plan a route on the left and preview the generated travel video on the right."
-  />
+  <meta name="description" content="Plan a route on the left and preview the generated travel video on the right." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link
-    href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap"
-    rel="stylesheet"
-  />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap"
+    rel="stylesheet" />
 </head>
 
 <body>
   <div id="app" class="app-shell">
     <header class="app-header">
       <a class="home-link" href="../" aria-label="Back to home">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M3 10.5 12 3l9 7.5" />
           <path d="M5 9.8V21h14V9.8" />
         </svg>
@@ -47,8 +43,9 @@
       <div class="header-actions">
         <div id="creditsBadge" class="credits-badge" data-state="available" aria-live="polite">
           <span class="credits-badge-icon" aria-hidden="true">
-            <svg viewBox="0 0 32 32" focusable="false" aria-hidden="true">
-              <circle cx="16" cy="16" r="8.5" />
+            <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true" fill="none" stroke="currentColor"
+              stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z" />
             </svg>
           </span>
           <span class="credits-badge-copy">
@@ -58,17 +55,13 @@
         </div>
 
         <div class="account-menu" id="accountMenuRoot">
-          <button
-            id="accountMenuButton"
-            class="account-menu-btn"
-            type="button"
-            aria-haspopup="menu"
-            aria-expanded="false"
-            aria-controls="accountMenu"
-          >
+          <button id="accountMenuButton" class="account-menu-btn" type="button" aria-haspopup="menu"
+            aria-expanded="false" aria-controls="accountMenu">
             <span id="accountAvatar" class="account-avatar" aria-hidden="true">T</span>
             <span id="accountLabel" class="account-label">TrailFrame</span>
-            <svg class="account-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <svg class="account-caret" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+              aria-hidden="true">
               <polyline points="6 9 12 15 18 9" />
             </svg>
           </button>
@@ -97,8 +90,16 @@
             <div class="timeline-row" data-role="start">
               <span class="pin start-pin" aria-hidden="true"></span>
               <div class="row-input-wrap">
-                <input type="text" placeholder="Start" value="New York, USA" data-country="UNITED STATES" data-coord="-74.006,40.7128" />
+                <input type="text" placeholder="Start" value="New York, USA" data-country="UNITED STATES"
+                  data-coord="-74.006,40.7128" />
               </div>
+              <button type="button" class="row-delete-btn" aria-label="Remove stop" title="Remove">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
             </div>
 
             <button id="addDestBtn" class="add-destination" type="button">
@@ -152,30 +153,29 @@
             <span class="control-divider" aria-hidden="true"></span>
 
             <div class="speed-control">
-              <button
-                id="speedBtn"
-                class="player-btn speed-btn"
-                type="button"
-                aria-haspopup="menu"
-                aria-expanded="false"
-                aria-controls="speedMenu"
-              >
+              <button id="speedBtn" class="player-btn speed-btn" type="button" aria-haspopup="menu"
+                aria-expanded="false" aria-controls="speedMenu">
                 <span class="speed-btn-label">x1</span>
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
-                  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                  aria-hidden="true">
                   <polyline points="6 9 12 15 18 9" />
                 </svg>
               </button>
               <div id="speedMenu" class="speed-menu" role="menu" hidden>
-                <button type="button" class="speed-option active" data-rate="1" role="menuitemradio" aria-checked="true">x1</button>
-                <button type="button" class="speed-option" data-rate="2" role="menuitemradio" aria-checked="false">x2</button>
-                <button type="button" class="speed-option" data-rate="4" role="menuitemradio" aria-checked="false">x4</button>
+                <button type="button" class="speed-option active" data-rate="1" role="menuitemradio"
+                  aria-checked="true">x1</button>
+                <button type="button" class="speed-option" data-rate="2" role="menuitemradio"
+                  aria-checked="false">x2</button>
+                <button type="button" class="speed-option" data-rate="4" role="menuitemradio"
+                  aria-checked="false">x4</button>
               </div>
             </div>
 
             <span class="control-divider" aria-hidden="true"></span>
 
-            <button id="basemapBtn" class="player-btn basemap-btn" type="button" data-basemap="satellite">REMOTION PREVIEW</button>
+            <button id="basemapBtn" class="player-btn basemap-btn" type="button" data-basemap="satellite">REMOTION
+              PREVIEW</button>
           </div>
         </div>
       </section>
