@@ -1,6 +1,8 @@
 import "./styles.css";
 import {createRemotionJourneyScene} from "./remotionJourneyScene";
 
+const AUTH_STORAGE_KEY = "trailframe.auth";
+
 const playBtn = document.getElementById("playBtn");
 const exportBtn = document.getElementById("exportBtn");
 const speedBtn = document.getElementById("speedBtn");
@@ -8,6 +10,17 @@ const speedMenu = document.getElementById("speedMenu");
 const basemapBtn = document.getElementById("basemapBtn");
 const generateBtn = document.getElementById("generateBtn");
 const addDestBtn = document.getElementById("addDestBtn");
+const accountMenuRoot = document.getElementById("accountMenuRoot");
+const accountMenuButton = document.getElementById("accountMenuButton");
+const accountMenu = document.getElementById("accountMenu");
+const accountAvatar = document.getElementById("accountAvatar");
+const accountLabel = document.getElementById("accountLabel");
+const creditsBadge = document.getElementById("creditsBadge");
+const creditsValue = document.getElementById("creditsValue");
+const accountMenuTitle = document.getElementById("accountMenuTitle");
+const accountMenuSubtitle = document.getElementById("accountMenuSubtitle");
+const accountHomeBtn = document.getElementById("accountHomeBtn");
+const accountSignOutBtn = document.getElementById("accountSignOutBtn");
 const sidebarActions = document.getElementById("sidebarActions");
 const arrivalCard = document.getElementById("arrivalCard");
 const arrivalCity = document.getElementById("arrivalCity");
@@ -43,12 +56,97 @@ let latestPlaybackBlob = null;
 let latestPlaybackMimeType = "";
 let playbackRate = 1;
 
+function getRemainingCredits() {
+  if (typeof authState?.credits === "number" && Number.isFinite(authState.credits)) {
+    return Math.max(0, authState.credits);
+  }
+
+  if (authState?.provider === "github") return 24;
+  if (authState?.provider === "email") return 8;
+  return 0;
+}
+
+function readAuthState() {
+  try {
+    const stored = window.localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!stored) return null;
+    const parsed = JSON.parse(stored);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearAuthState() {
+  try {
+    window.localStorage.removeItem(AUTH_STORAGE_KEY);
+  } catch {
+    // Ignore storage failures in demo mode.
+  }
+}
+
+function getWorkspaceRedirectTarget() {
+  return `${window.location.pathname}${window.location.search}${window.location.hash}`;
+}
+
+function redirectToLandingAuth() {
+  const redirect = encodeURIComponent(getWorkspaceRedirectTarget());
+  window.location.replace(`../?auth=login&redirect=${redirect}`);
+}
+
+const authState = readAuthState();
+
+if (!authState) {
+  redirectToLandingAuth();
+}
+
 function formatPlaybackRate(rate) {
   return `x${Number.isInteger(rate) ? rate : rate.toFixed(1)}`;
 }
 
 function formatDistanceKm(km) {
   return `${Math.round(km).toLocaleString("en-US")} km`;
+}
+
+function getAccountDisplayName() {
+  const displayName = authState?.displayName?.trim();
+  if (displayName) return displayName;
+  const emailName = authState?.email?.split("@")[0]?.trim();
+  return emailName || "TrailFrame";
+}
+
+function getAccountInitials() {
+  const source = getAccountDisplayName();
+  const initials = source
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() || "")
+    .join("");
+  return initials || "T";
+}
+
+function syncAccountUI() {
+  const displayName = getAccountDisplayName();
+  if (accountAvatar) accountAvatar.textContent = getAccountInitials();
+  if (accountLabel) accountLabel.textContent = displayName;
+  const remainingCredits = getRemainingCredits();
+  if (creditsBadge) {
+    creditsBadge.dataset.state = remainingCredits > 0 ? "available" : "empty";
+    creditsBadge.setAttribute(
+      "aria-label",
+      remainingCredits > 0 ? `${remainingCredits} credits remaining` : "No credits remaining",
+    );
+  }
+  if (creditsValue) {
+    creditsValue.textContent = remainingCredits > 0 ? `${remainingCredits} left` : "No credits";
+  }
+  if (accountMenuTitle) accountMenuTitle.textContent = `${displayName}'s Workspace`;
+  if (accountMenuSubtitle) {
+    accountMenuSubtitle.textContent = authState?.email
+      ? `${authState.email} · ${authState.provider === "github" ? "GitHub" : "Email"}`
+      : "Your routes and exports are ready.";
+  }
 }
 
 function calculateDistanceKm(from, to) {
@@ -126,6 +224,17 @@ function closeSpeedMenu() {
   if (!speedBtn || !speedMenu) return;
   speedBtn.setAttribute("aria-expanded", "false");
   speedMenu.hidden = true;
+}
+
+function setAccountMenuOpen(open) {
+  if (!accountMenuRoot || !accountMenuButton || !accountMenu) return;
+  accountMenuRoot.classList.toggle("is-open", open);
+  accountMenuButton.setAttribute("aria-expanded", open ? "true" : "false");
+  accountMenu.hidden = !open;
+}
+
+function closeAccountMenu() {
+  setAccountMenuOpen(false);
 }
 
 function updateLegDistanceLabels() {
@@ -614,7 +723,16 @@ function bindRouteInput(input) {
     delete input.dataset.country;
     updateRouteOverview();
     updateLegDistanceLabels();
+    syncGenerateButtonState();
   });
+}
+
+function syncGenerateButtonState() {
+  if (!generateBtn) return;
+  const rowCount = getTimelineRows().length;
+  const ready = rowCount >= 2;
+  generateBtn.disabled = building || !ready;
+  generateBtn.textContent = building ? "Generating..." : ready ? "Generate Route" : "Add one more stop";
 }
 
 async function collectStops() {
@@ -866,7 +984,26 @@ function createTimelineConnector() {
 function addDestinationRow() {
   if (!routeTimeline) return;
   const endRow = routeTimeline.querySelector('.timeline-row[data-role="end"]');
-  if (!endRow) return;
+  if (!endRow) {
+    const connector = createTimelineConnector();
+    const newEndRow = createEndRow();
+    const insertBeforeNode = addDestBtn && addDestBtn.parentElement === routeTimeline ? addDestBtn : null;
+
+    routeTimeline.insertBefore(connector, insertBeforeNode);
+    routeTimeline.insertBefore(newEndRow, insertBeforeNode);
+
+    const input = newEndRow.querySelector('input[type="text"]');
+    bindTimelineRowDrag(newEndRow);
+    if (input) {
+      bindRouteInput(input);
+      input.focus();
+    }
+    updateRouteOverview();
+    updateLegDistanceLabels();
+    syncGenerateButtonState();
+    requestAnimationFrame(updateSidebarOverflowState);
+    return;
+  }
 
   endRow.dataset.role = "waypoint";
   const endPin = endRow.querySelector(".pin");
@@ -887,14 +1024,14 @@ function addDestinationRow() {
   }
   updateRouteOverview();
   updateLegDistanceLabels();
+  syncGenerateButtonState();
   requestAnimationFrame(updateSidebarOverflowState);
 }
 
 async function initScene(stops, legModes) {
   if (building) return;
   building = true;
-  generateBtn.disabled = true;
-  generateBtn.textContent = "Generating...";
+  syncGenerateButtonState();
   if (scene) scene.destroy();
   scene = await createRemotionJourneyScene("globeContainer", stops, legModes, playbackRate);
 
@@ -902,8 +1039,7 @@ async function initScene(stops, legModes) {
   latestPlaybackBlob = null;
   latestPlaybackMimeType = "";
   building = false;
-  generateBtn.disabled = false;
-  generateBtn.textContent = "Generate Route";
+  syncGenerateButtonState();
 }
 
 function updateBasemapButtonUI() {
@@ -1043,71 +1179,103 @@ async function exportVideo() {
   }
 }
 
-generateBtn.addEventListener("click", async () => {
-  try {
-    const stops = await collectStops();
-    const legModes = collectLegModes(stops.length - 1);
-    await initScene(stops, legModes);
-    await run();
-  } catch (error) {
-    building = false;
-    generateBtn.disabled = false;
-    generateBtn.textContent = "Generate Route";
-    // eslint-disable-next-line no-alert
-    alert(error.message);
-  }
-});
+if (authState) {
+  generateBtn.addEventListener("click", async () => {
+    try {
+      const stops = await collectStops();
+      const legModes = collectLegModes(stops.length - 1);
+      await initScene(stops, legModes);
+      await run();
+    } catch (error) {
+      building = false;
+      syncGenerateButtonState();
+      // eslint-disable-next-line no-alert
+      alert(error.message);
+    }
+  });
 
-playBtn.addEventListener("click", run);
+  playBtn.addEventListener("click", run);
 
-exportBtn.addEventListener("click", exportVideo);
-basemapBtn?.addEventListener("click", cycleBasemap);
+  exportBtn.addEventListener("click", exportVideo);
+  basemapBtn?.addEventListener("click", cycleBasemap);
 
-speedBtn?.addEventListener("click", () => {
-  if (!speedMenu) return;
-  const nextExpanded = speedBtn.getAttribute("aria-expanded") !== "true";
-  speedBtn.setAttribute("aria-expanded", nextExpanded ? "true" : "false");
-  speedMenu.hidden = !nextExpanded;
-});
+  speedBtn?.addEventListener("click", () => {
+    if (!speedMenu) return;
+    const nextExpanded = speedBtn.getAttribute("aria-expanded") !== "true";
+    speedBtn.setAttribute("aria-expanded", nextExpanded ? "true" : "false");
+    speedMenu.hidden = !nextExpanded;
+  });
 
-speedMenu?.addEventListener("click", (event) => {
-  const target = event.target instanceof Element ? event.target : null;
-  const button = target?.closest(".speed-option");
-  if (!(button instanceof HTMLButtonElement)) return;
-  setPlaybackRate(Number(button.dataset.rate));
-});
+  speedMenu?.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const button = target?.closest(".speed-option");
+    if (!(button instanceof HTMLButtonElement)) return;
+    setPlaybackRate(Number(button.dataset.rate));
+  });
 
-document.addEventListener("click", (event) => {
-  if (!speedMenu || !speedBtn) return;
-  if (speedMenu.hidden) return;
-  const target = event.target instanceof Node ? event.target : null;
-  if (target && (speedMenu.contains(target) || speedBtn.contains(target))) return;
-  closeSpeedMenu();
-});
+  accountMenuButton?.addEventListener("click", () => {
+    const nextExpanded = accountMenuButton.getAttribute("aria-expanded") !== "true";
+    setAccountMenuOpen(nextExpanded);
+  });
 
-document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") {
+  accountMenu?.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target?.closest(".account-item")) return;
+    if (target.closest("#accountHomeBtn")) {
+      window.location.assign("../");
+      return;
+    }
+    if (target.closest("#accountSignOutBtn")) {
+      clearAuthState();
+      redirectToLandingAuth();
+      return;
+    }
+    closeAccountMenu();
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!speedMenu || !speedBtn) return;
+    if (speedMenu.hidden) return;
+    const target = event.target instanceof Node ? event.target : null;
+    if (target && (speedMenu.contains(target) || speedBtn.contains(target))) return;
     closeSpeedMenu();
-  }
-});
+  });
 
-addDestBtn?.addEventListener("click", addDestinationRow);
+  document.addEventListener("click", (event) => {
+    if (!accountMenu || !accountMenuButton) return;
+    if (accountMenu.hidden) return;
+    const target = event.target instanceof Node ? event.target : null;
+    if (target && ((accountMenuRoot && accountMenuRoot.contains(target)) || accountMenuButton.contains(target))) return;
+    closeAccountMenu();
+  });
 
-document.querySelectorAll('#routeTimeline .timeline-row input[type="text"]').forEach(bindRouteInput);
-initTimelineDragSort();
-initSidebarOverflowState();
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      closeSpeedMenu();
+      closeAccountMenu();
+    }
+  });
 
-window.addEventListener("beforeunload", () => scene?.destroy());
-initModeToggles();
-enableInitialLegDistances();
-updateBasemapButtonUI();
-updateSpeedControlUI();
-updateRouteOverview();
+  addDestBtn?.addEventListener("click", addDestinationRow);
 
-initScene(
-  [
-    { city: "NEW YORK", country: "UNITED STATES", lon: -74.006, lat: 40.7128 },
-    { city: "KIZIMKAZI", country: "TANZANIA", lon: 39.512, lat: -6.452 }
-  ],
-  ["plane"]
-);
+  document.querySelectorAll('#routeTimeline .timeline-row input[type="text"]').forEach(bindRouteInput);
+  initTimelineDragSort();
+  initSidebarOverflowState();
+  syncAccountUI();
+
+  window.addEventListener("beforeunload", () => scene?.destroy());
+  initModeToggles();
+  enableInitialLegDistances();
+  updateBasemapButtonUI();
+  updateSpeedControlUI();
+  updateRouteOverview();
+  syncGenerateButtonState();
+
+  initScene(
+    [
+      { city: "NEW YORK", country: "UNITED STATES", lon: -74.006, lat: 40.7128 },
+      { city: "NEW YORK", country: "UNITED STATES", lon: -74.006, lat: 40.7128 }
+    ],
+    ["plane"]
+  );
+}

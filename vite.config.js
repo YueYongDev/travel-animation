@@ -10,7 +10,9 @@ export default defineConfig(({mode}) => {
       rollupOptions: {
         input: {
           main: resolve(process.cwd(), "index.html"),
-          studio: resolve(process.cwd(), "studio.html"),
+          terms: resolve(process.cwd(), "terms.html"),
+          privacy: resolve(process.cwd(), "privacy.html"),
+          workspace: resolve(process.cwd(), "workspace/index.html"),
         },
       },
     },

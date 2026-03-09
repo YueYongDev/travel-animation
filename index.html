@@ -28,7 +28,10 @@
         </span>
         <div class="brand-copy">
           <span class="eyebrow">旅行动画工作室</span>
-          <strong>TrailFrame</strong>
+          <strong class="brand-wordmark brand-wordmark--header" aria-label="TrailFrame">
+            <span class="brand-wordmark-trail">Trail</span>
+            <span class="brand-wordmark-frame">Frame</span>
+          </strong>
         </div>
       </div>
 
@@ -38,7 +41,14 @@
       </nav>
 
       <div class="header-actions">
-        <a class="primary-link" href="./studio.html">立即体验</a>
+        <button class="header-auth-link" type="button" data-auth-open="login">登录</button>
+        <a class="primary-link primary-link-start js-workspace-link" href="./workspace/" data-auth-start="true">
+          <span class="cta-label">立即开始</span>
+          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="5" y1="12" x2="19" y2="12" />
+            <polyline points="12 5 19 12 12 19" />
+          </svg>
+        </a>
       </div>
     </header>
 
@@ -46,18 +56,33 @@
       <section class="hero-grid">
         <article class="hero-copy">
           <span class="eyebrow">TrailFrame for travel</span>
-          <h1 class="hero-title">路线，一键成片</h1>
-          <p>输入地点和交通方式，直接生成旅行镜头。</p>
+          <h1 class="hero-title">
+            <span class="hero-title-line">把走过的山水和心动</span>
+            <span class="hero-title-line hero-title-line-accent">折叠进每一帧的光影里。</span>
+          </h1>
+          <p class="hero-lead">输入地点、交通方式，把风景、停留和情绪都收进同一条旅程叙事。</p>
 
           <div class="hero-actions">
-            <a class="primary-link" href="./studio.html">立即体验</a>
+            <a class="primary-link js-workspace-link" href="./workspace/" data-auth-start="true">
+              <span class="cta-label">快速开始</span>
+            </a>
             <a class="secondary-link" href="#workflow">了解更多</a>
           </div>
 
           <div class="hero-meta" aria-label="核心能力">
             <span>实时预览</span>
             <span>交通切换</span>
+            <span>多站叙事</span>
             <span>一键导出</span>
+          </div>
+
+          <div class="hero-proof" aria-label="用户反馈">
+            <div class="hero-proof-avatars" aria-hidden="true">
+              <span class="proof-avatar proof-avatar-a">山</span>
+              <span class="proof-avatar proof-avatar-b">路</span>
+              <span class="proof-avatar proof-avatar-c">光</span>
+            </div>
+            <p>已被 5,000+ 旅行创作者加入灵感清单</p>
           </div>
         </article>
 
@@ -98,53 +123,239 @@
         </aside>
       </section>
 
-      <section id="features" class="features-strip" aria-label="核心功能">
-        <article class="feature-card">
-          <span class="feature-num">01</span>
-          <strong>交通感知</strong>
-        </article>
-        <article class="feature-card">
-          <span class="feature-num">02</span>
-          <strong>实时预览</strong>
-        </article>
-        <article class="feature-card">
-          <span class="feature-num">03</span>
-          <strong>多站叙事</strong>
-        </article>
-        <article class="feature-card">
-          <span class="feature-num">04</span>
-          <strong>一键导出</strong>
-        </article>
+      <section id="features" class="features-section" aria-labelledby="featuresTitle">
+        <div class="section-heading">
+          <span class="eyebrow">功能亮点</span>
+          <h2 id="featuresTitle">把路线编辑、镜头预览和导出交给同一个工作台</h2>
+          <p>功能区块单独呈现，适合快速浏览能力边界，再进入下面的三步工作流。</p>
+        </div>
+
+        <div class="features-grid">
+          <article class="feature-card feature-card-a">
+            <span class="feature-icon" aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10 20h4" />
+                <path d="M12 16v4" />
+                <path d="m4 8 4-4 4 4" />
+                <path d="m20 16-4 4-4-4" />
+                <path d="M8 4v10" />
+                <path d="M16 20V10" />
+              </svg>
+            </span>
+            <strong>交通感知</strong>
+            <p>同一段旅程里混合飞机、火车和步行，镜头节奏会跟着路线切换。</p>
+          </article>
+
+          <article class="feature-card feature-card-b">
+            <span class="feature-icon" aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 12h6l3-9 4 18 3-9h2" />
+              </svg>
+            </span>
+            <strong>实时预览</strong>
+            <p>路线一改，预览就同步更新，不用在多个页面来回切换确认画面。</p>
+          </article>
+
+          <article class="feature-card feature-card-c">
+            <span class="feature-icon" aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 6h10" />
+                <path d="M4 12h16" />
+                <path d="M4 18h8" />
+                <circle cx="18" cy="6" r="2" />
+                <circle cx="8" cy="18" r="2" />
+              </svg>
+            </span>
+            <strong>多站叙事</strong>
+            <p>支持出发地、停留点和目的地串联，让旅行不只是从 A 到 B。</p>
+          </article>
+
+          <article class="feature-card feature-card-d">
+            <span class="feature-icon" aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 3v12" />
+                <path d="m7 10 5 5 5-5" />
+                <path d="M5 21h14" />
+              </svg>
+            </span>
+            <strong>一键导出</strong>
+            <p>确认镜头后直接导出成片，适合分享到社媒、剪辑或项目展示里。</p>
+          </article>
+        </div>
       </section>
 
       <section id="workflow" class="workflow-section">
         <div class="workflow-header">
-          <span class="eyebrow">工作流</span>
+          <span class="workflow-eyebrow">✦ 工作流</span>
           <h2>三步完成你的旅行动画</h2>
+          <p>保留清晰步骤，但换成更有图形感的工作流卡片，不再只是堆文字。</p>
         </div>
 
-        <div class="workflow-grid">
-          <article class="workflow-card" data-step="01">
+        <div class="workflow-flow" aria-label="工作流步骤">
+          <article class="workflow-card workflow-card-a" data-step="01">
+            <span class="workflow-icon" aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 16V4" />
+                <path d="m7 9 5-5 5 5" />
+                <rect x="4" y="16" width="16" height="4" rx="1.5" />
+              </svg>
+            </span>
             <strong>规划路线</strong>
-            <p>添加出发地、目的地和途经点，拖拽排序调整叙事弧线</p>
+            <p>添加出发地、目的地和途经点，确定一条有情绪节奏的旅行路线。</p>
           </article>
-          <article class="workflow-card" data-step="02">
+
+          <div class="workflow-connector" aria-hidden="true">
+            <span>解析路线</span>
+          </div>
+
+          <article class="workflow-card workflow-card-b" data-step="02">
+            <span class="workflow-icon" aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="7" width="18" height="10" rx="3" />
+                <path d="M7 7V5" />
+                <path d="M17 7V5" />
+                <path d="M8 12h.01" />
+                <path d="M12 12h.01" />
+                <path d="M16 12h.01" />
+              </svg>
+            </span>
             <strong>设置交通</strong>
-            <p>为每段路程选择飞机、火车或汽车，动画自动适配</p>
+            <p>为每段路程选择飞机、火车或汽车，让镜头运动自动适配你的交通方式。</p>
           </article>
-          <article class="workflow-card" data-step="03">
+
+          <div class="workflow-connector" aria-hidden="true">
+            <span>生成成片</span>
+          </div>
+
+          <article class="workflow-card workflow-card-c" data-step="03">
+            <span class="workflow-icon" aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 3v12" />
+                <path d="m7 10 5 5 5-5" />
+                <rect x="4" y="17" width="16" height="4" rx="1.5" />
+              </svg>
+            </span>
             <strong>预览导出</strong>
-            <p>在工作室中实时预览镜头运动，满意后一键渲染视频</p>
+            <p>在工作室中实时预览镜头运动，满意后一键导出，直接放进你的项目里。</p>
           </article>
         </div>
       </section>
     </main>
 
-    <footer class="landing-footer">
-      <span>TrailFrame — 为创作者、旅行品牌与编辑团队打造</span>
-      <a href="./studio.html">进入工作室 →</a>
+    <footer class="site-footer">
+      <div class="footer-rail" aria-hidden="true"></div>
+
+      <div class="footer-shell">
+        <div class="footer-brand-column">
+          <a class="footer-brand" href="./" aria-label="TrailFrame home">
+            <span class="brand-mark" aria-hidden="true">
+              <span class="brand-orb"></span>
+              <span class="brand-grid"></span>
+            </span>
+            <div class="brand-copy">
+              <span class="eyebrow">旅行动画工作室</span>
+              <strong class="brand-wordmark brand-wordmark--header" aria-label="TrailFrame">
+                <span class="brand-wordmark-trail">Trail</span>
+                <span class="brand-wordmark-frame">Frame</span>
+              </strong>
+            </div>
+          </a>
+
+          <p class="footer-copy">把路线、停留和情绪剪进同一条旅程叙事里，为旅行创作者和内容团队准备的一站式工作台。</p>
+          <p class="footer-meta">© <span class="js-current-year">2026</span> TrailFrame Studio. All rights reserved.</p>
+        </div>
+
+        <nav class="footer-links-column" aria-label="Footer links">
+          <h3>传送门</h3>
+          <div class="footer-link-list">
+            <a href="#features">功能亮点</a>
+            <a href="#workflow">工作流</a>
+            <a href="./terms.html">服务条款</a>
+            <a href="./privacy.html">隐私政策</a>
+          </div>
+        </nav>
+
+        <div class="footer-contact-column">
+          <h3>联系开发者</h3>
+          <p>合作、反馈，或想聊聊路线动画，欢迎直接联系我。</p>
+
+          <button type="button" class="footer-contact-card" data-copy-text="yueyong1030@outlook.com">
+            <span class="footer-contact-icon footer-contact-icon-email" aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="5" width="18" height="14" rx="2" />
+                <path d="m4 7 8 6 8-6" />
+              </svg>
+            </span>
+            <span class="footer-contact-copy">
+              <span class="footer-contact-label">Email</span>
+              <strong>yueyong1030@outlook.com</strong>
+            </span>
+            <span class="footer-copy-chip">复制</span>
+          </button>
+        </div>
+      </div>
     </footer>
   </div>
+
+  <div id="authModal" class="auth-modal" hidden>
+    <div class="auth-modal-backdrop" data-auth-close></div>
+    <section class="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+      <button id="authCloseBtn" class="auth-close" type="button" aria-label="关闭">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
+
+      <div class="auth-tabs" role="tablist" aria-label="登录注册">
+        <button id="authTabLogin" class="auth-tab active" type="button" role="tab" aria-selected="true" data-auth-tab="login">登录</button>
+        <button id="authTabRegister" class="auth-tab" type="button" role="tab" aria-selected="false" data-auth-tab="register">注册</button>
+      </div>
+
+      <div class="auth-brand-block">
+        <p id="authKicker" class="auth-kicker">Travel animation studio</p>
+        <h2 id="authTitle" class="auth-title">
+          <span id="authTitlePrefix">欢迎回来</span>
+        </h2>
+        <p class="auth-brand-name" aria-label="TrailFrame">TrailFrame</p>
+        <p id="authSubtitle" class="auth-subtitle">登录以继续编辑和导出你的项目</p>
+      </div>
+
+      <form id="authForm" class="auth-form">
+        <label class="auth-field">
+          <span class="auth-field-label">邮箱</span>
+          <input id="authEmail" class="auth-input" type="email" name="email" placeholder="you@example.com" autocomplete="email" required />
+        </label>
+
+        <label class="auth-field">
+          <span class="auth-field-label">密码</span>
+          <input id="authPassword" class="auth-input" type="password" name="password" placeholder="设置密码（至少 6 位）" autocomplete="current-password" required />
+        </label>
+
+        <div class="auth-form-meta">
+          <span id="authMetaHint" class="auth-meta-hint" hidden></span>
+          <button id="authForgotBtn" class="auth-forgot" type="button">忘记密码？</button>
+        </div>
+
+        <button id="authSubmitBtn" class="auth-submit" type="submit">登录</button>
+      </form>
+
+      <div class="auth-divider" aria-hidden="true">
+        <span>OR</span>
+      </div>
+
+      <button id="authGithubBtn" class="auth-github" type="button">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M12 .5C5.65.5.5 5.66.5 12.02c0 5.08 3.29 9.38 7.86 10.9.57.11.78-.25.78-.56 0-.28-.01-1.19-.02-2.16-3.2.69-3.88-1.36-3.88-1.36-.52-1.34-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.2 1.77 1.2 1.03 1.77 2.71 1.26 3.37.97.11-.75.4-1.26.72-1.54-2.56-.29-5.26-1.28-5.26-5.71 0-1.26.45-2.28 1.18-3.08-.12-.29-.51-1.46.11-3.04 0 0 .96-.31 3.15 1.18a10.9 10.9 0 0 1 5.74 0c2.18-1.49 3.14-1.18 3.14-1.18.62 1.58.23 2.75.11 3.04.73.8 1.18 1.82 1.18 3.08 0 4.44-2.71 5.41-5.29 5.69.41.36.78 1.07.78 2.17 0 1.57-.01 2.83-.01 3.21 0 .31.21.68.79.56A11.53 11.53 0 0 0 23.5 12.02C23.5 5.66 18.35.5 12 .5Z" />
+        </svg>
+        <span>使用 Github 登录 / 注册</span>
+      </button>
+
+      <p id="authStatus" class="auth-status" hidden></p>
+    </section>
+  </div>
+
+  <script type="module" src="/src/landing.js"></script>
 </body>
 
 </html>
