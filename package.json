@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@remotion/player": "^4.0.434",
+    "@supabase/supabase-js": "^2.99.0",
     "@turf/turf": "^7.3.4",
     "mapbox-gl": "^3.19.1",
     "react": "^19.2.4",
@@ -22,10 +23,10 @@
   },
   "devDependencies": {
     "@remotion/cli": "^4.0.434",
-    "@vitejs/plugin-react": "^5.0.2",
     "@types/node": "^25.3.5",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.0.2",
     "typescript": "^5.9.3",
     "vite": "^7.1.3"
   }

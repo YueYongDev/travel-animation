@@ -1,8 +1,10 @@
-import {initSiteFooter} from "./site-footer";
-
-const AUTH_STORAGE_KEY = "trailframe.auth";
-const DEMO_EMAIL = "yueyong1030@outlook.com";
-const DEMO_PASSWORD = "12345678";
+import { initSiteFooter } from "./site-footer";
+import {
+  assertSupabaseConfigured,
+  getAuthErrorMessage,
+  getSession,
+  supabase,
+} from "./lib/supabaseAuth";
 
 const authModal = document.getElementById("authModal");
 const authForm = document.getElementById("authForm");
@@ -25,36 +27,14 @@ const authClosers = document.querySelectorAll("[data-auth-close]");
 const startLinks = document.querySelectorAll("[data-auth-start]");
 const headerAuthLink = document.querySelector(".header-auth-link");
 
+const initialParams = new URLSearchParams(window.location.search);
+const initialMode = initialParams.get("auth");
+const initialRedirect = sanitizeRedirectTarget(initialParams.get("redirect"));
+
 let authMode = "login";
-let pendingRedirect = null;
+let pendingRedirect = initialRedirect;
 let lastFocusedElement = null;
-
-function readAuthState() {
-  try {
-    const stored = window.localStorage.getItem(AUTH_STORAGE_KEY);
-    if (!stored) return null;
-    const parsed = JSON.parse(stored);
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeAuthState(value) {
-  try {
-    window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(value));
-  } catch {
-    // Ignore storage failures in demo mode.
-  }
-}
-
-function clearAuthState() {
-  try {
-    window.localStorage.removeItem(AUTH_STORAGE_KEY);
-  } catch {
-    // Ignore storage failures in demo mode.
-  }
-}
+let currentSession = null;
 
 function sanitizeRedirectTarget(target) {
   if (!target) return null;
@@ -119,8 +99,8 @@ function setAuthMode(nextMode) {
   if (authTitlePrefix) authTitlePrefix.textContent = registerView ? "创建账号" : "欢迎回来";
   if (authSubtitle) {
     authSubtitle.textContent = registerView
-      ? "注册以保存和分享你的作品"
-      : "登录以继续编辑和导出你的项目";
+      ? "注册后立即获赠 10 积分，用于首次导出"
+      : "登录以继续编辑、查看积分并导出视频";
   }
   if (authMetaHint) {
     authMetaHint.hidden = true;
@@ -129,14 +109,10 @@ function setAuthMode(nextMode) {
   if (authPassword) {
     authPassword.placeholder = registerView ? "设置密码（至少 6 位）" : "输入密码";
     authPassword.autocomplete = registerView ? "new-password" : "current-password";
+    authPassword.value = "";
   }
   if (authForgotBtn) authForgotBtn.hidden = registerView;
   if (authFormMeta) authFormMeta.hidden = registerView;
-
-  if (!registerView) {
-    if (authEmail && !authEmail.value.trim()) authEmail.value = DEMO_EMAIL;
-    if (authPassword && !authPassword.value.trim()) authPassword.value = DEMO_PASSWORD;
-  }
 
   clearStatus();
   setSubmitLoading(false);
@@ -162,10 +138,6 @@ function openAuthModal(nextMode = "login", redirectTarget = null) {
   lastFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   pendingRedirect = sanitizeRedirectTarget(redirectTarget) ?? pendingRedirect;
   setAuthMode(nextMode);
-  if (authEmail && authMode === "login" && !authEmail.value.trim()) authEmail.value = DEMO_EMAIL;
-  if (authPassword) {
-    authPassword.value = authMode === "login" ? DEMO_PASSWORD : "";
-  }
   setModalOpen(true);
 }
 
@@ -191,21 +163,10 @@ function isValidEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
-function createAuthPayload(email, provider) {
-  const localName = email.split("@")[0] || "trail";
-  return {
-    email,
-    provider,
-    displayName: localName.replace(/[._-]+/g, " ").trim() || "TrailFrame",
-    loggedInAt: new Date().toISOString()
-  };
-}
-
 function syncHeaderAuthLink() {
-  const authState = readAuthState();
   if (!headerAuthLink) return;
 
-  if (authState) {
+  if (currentSession) {
     headerAuthLink.textContent = "工作台";
     headerAuthLink.dataset.authOpen = "account";
     headerAuthLink.setAttribute("aria-label", "进入工作台");
@@ -217,12 +178,30 @@ function syncHeaderAuthLink() {
   headerAuthLink.setAttribute("aria-label", "打开登录弹窗");
 }
 
+async function refreshAuthState() {
+  currentSession = await getSession();
+  syncHeaderAuthLink();
+  return currentSession;
+}
+
+function getOAuthReturnUrl() {
+  const returnUrl = new URL(window.location.pathname, window.location.origin);
+  returnUrl.searchParams.set("auth", "login");
+
+  const redirectTarget = pendingRedirect || getWorkspaceTarget();
+  if (redirectTarget) {
+    returnUrl.searchParams.set("redirect", redirectTarget);
+  }
+
+  return returnUrl.toString();
+}
+
 authOpeners.forEach((opener) => {
   opener.addEventListener("click", (event) => {
     const target = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
     if (!target) return;
 
-    if (target.dataset.authOpen === "account" && readAuthState()) {
+    if (target.dataset.authOpen === "account" && currentSession) {
       window.location.assign(getWorkspaceTarget());
       return;
     }
@@ -233,7 +212,7 @@ authOpeners.forEach((opener) => {
 
 startLinks.forEach((link) => {
   link.addEventListener("click", (event) => {
-    if (readAuthState()) return;
+    if (currentSession) return;
 
     event.preventDefault();
     const anchor = event.currentTarget instanceof HTMLAnchorElement ? event.currentTarget : null;
@@ -247,20 +226,30 @@ authCloseBtn?.addEventListener("click", closeAuthModal);
 authClosers.forEach((closer) => closer.addEventListener("click", closeAuthModal));
 
 authForgotBtn?.addEventListener("click", () => {
-  showStatus("演示版未接入找回密码流程，请直接注册一个新账号继续体验。", "info");
+  showStatus("重置密码页面还未单独实现，当前版本请先注册新账号或在 Supabase 控制台手动重置。", "info");
 });
 
-authGithubBtn?.addEventListener("click", () => {
+authGithubBtn?.addEventListener("click", async () => {
   setSubmitLoading(true);
-  window.setTimeout(() => {
-    writeAuthState(createAuthPayload("github@trailframe.app", "github"));
-    syncHeaderAuthLink();
-    showStatus("GitHub 登录已完成，正在进入工作台...", "success");
-    window.setTimeout(proceedAfterAuth, 220);
-  }, 180);
+  clearStatus();
+
+  try {
+    assertSupabaseConfigured();
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "github",
+      options: {
+        redirectTo: getOAuthReturnUrl(),
+      },
+    });
+
+    if (error) throw error;
+  } catch (error) {
+    showStatus(getAuthErrorMessage(error, authMode), "error");
+    setSubmitLoading(false);
+  }
 });
 
-authForm?.addEventListener("submit", (event) => {
+authForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
 
   const email = authEmail?.value.trim().toLowerCase() || "";
@@ -279,14 +268,53 @@ authForm?.addEventListener("submit", (event) => {
   }
 
   setSubmitLoading(true);
+  clearStatus();
 
-  window.setTimeout(() => {
-    clearAuthState();
-    writeAuthState(createAuthPayload(email, "email"));
-    syncHeaderAuthLink();
-    showStatus(authMode === "register" ? "账号创建成功，正在进入工作台..." : "登录成功，正在进入工作台...", "success");
+  try {
+    assertSupabaseConfigured();
+
+    if (authMode === "register") {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            display_name: email.split("@")[0]?.replace(/[._-]+/g, " ").trim() || "TrailFrame",
+          },
+        },
+      });
+
+      if (error) throw error;
+
+      currentSession = data.session ?? null;
+      syncHeaderAuthLink();
+
+      if (data.session) {
+        showStatus("账号创建成功，10 积分已入账，正在进入工作台...", "success");
+        window.setTimeout(proceedAfterAuth, 220);
+        return;
+      }
+
+      showStatus("注册成功，请先完成邮箱验证，再回来登录。", "success");
+      setAuthMode("login");
+      if (authEmail) authEmail.value = email;
+      return;
+    }
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (error) throw error;
+
+    await refreshAuthState();
+    showStatus("登录成功，正在进入工作台...", "success");
     window.setTimeout(proceedAfterAuth, 220);
-  }, 180);
+  } catch (error) {
+    showStatus(getAuthErrorMessage(error, authMode), "error");
+    setSubmitLoading(false);
+  }
 });
 
 document.addEventListener("keydown", (event) => {
@@ -295,19 +323,42 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-const initialParams = new URLSearchParams(window.location.search);
-const initialMode = initialParams.get("auth");
-const initialRedirect = sanitizeRedirectTarget(initialParams.get("redirect"));
+async function bootstrapAuth() {
+  try {
+    assertSupabaseConfigured();
+  } catch (error) {
+    syncHeaderAuthLink();
+    if (initialMode === "login" || initialMode === "register") {
+      openAuthModal(initialMode, initialRedirect);
+      showStatus(error.message, "error");
+    }
+    return;
+  }
 
-pendingRedirect = initialRedirect;
-syncHeaderAuthLink();
+  supabase.auth.onAuthStateChange((_event, session) => {
+    currentSession = session;
+    syncHeaderAuthLink();
+  });
 
-if (readAuthState() && (initialMode === "login" || initialMode === "register")) {
-  proceedAfterAuth();
-} else if (initialMode === "login" || initialMode === "register") {
-  openAuthModal(initialMode, initialRedirect);
-} else {
+  await refreshAuthState();
+
+  if (currentSession && (initialMode === "login" || initialMode === "register")) {
+    proceedAfterAuth();
+    return;
+  }
+
+  if (initialMode === "login" || initialMode === "register") {
+    openAuthModal(initialMode, initialRedirect);
+    return;
+  }
+
   setAuthMode("login");
 }
+
+bootstrapAuth().catch((error) => {
+  console.error(error);
+  setAuthMode("login");
+  showStatus(error.message || "登录初始化失败，请稍后重试。", "error");
+});
 
 initSiteFooter();

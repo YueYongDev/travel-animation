@@ -1,7 +1,20 @@
 import "./styles.css";
 import { createRemotionJourneyScene } from "./remotionJourneyScene";
-
-const AUTH_STORAGE_KEY = "trailframe.auth";
+import {
+  EXPORT_CREDIT_COST,
+  assertSupabaseConfigured,
+  buildAuthState,
+  consumeCredits,
+  getAuthDisplayName,
+  getAuthErrorMessage,
+  getAuthInitials,
+  getAuthProviderLabel,
+  getSession,
+  signOut,
+  subscribeToProfile,
+  supabase,
+  waitForProfile,
+} from "./lib/supabaseAuth";
 
 const playBtn = document.getElementById("playBtn");
 const exportBtn = document.getElementById("exportBtn");
@@ -55,34 +68,16 @@ let dropPosition = "after";
 let latestPlaybackBlob = null;
 let latestPlaybackMimeType = "";
 let playbackRate = 1;
+let authState = null;
+let authSession = null;
+let profileChannel = null;
+let workspaceBound = false;
 
 function getRemainingCredits() {
   if (typeof authState?.credits === "number" && Number.isFinite(authState.credits)) {
     return Math.max(0, authState.credits);
   }
-
-  if (authState?.provider === "github") return 24;
-  if (authState?.provider === "email") return 8;
   return 0;
-}
-
-function readAuthState() {
-  try {
-    const stored = window.localStorage.getItem(AUTH_STORAGE_KEY);
-    if (!stored) return null;
-    const parsed = JSON.parse(stored);
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-function clearAuthState() {
-  try {
-    window.localStorage.removeItem(AUTH_STORAGE_KEY);
-  } catch {
-    // Ignore storage failures in demo mode.
-  }
 }
 
 function getWorkspaceRedirectTarget() {
@@ -94,12 +89,6 @@ function redirectToLandingAuth() {
   window.location.replace(`../?auth=login&redirect=${redirect}`);
 }
 
-const authState = readAuthState();
-
-if (!authState) {
-  redirectToLandingAuth();
-}
-
 function formatPlaybackRate(rate) {
   return `x${Number.isInteger(rate) ? rate : rate.toFixed(1)}`;
 }
@@ -109,21 +98,11 @@ function formatDistanceKm(km) {
 }
 
 function getAccountDisplayName() {
-  const displayName = authState?.displayName?.trim();
-  if (displayName) return displayName;
-  const emailName = authState?.email?.split("@")[0]?.trim();
-  return emailName || "TrailFrame";
+  return getAuthDisplayName(authState);
 }
 
 function getAccountInitials() {
-  const source = getAccountDisplayName();
-  const initials = source
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() || "")
-    .join("");
-  return initials || "T";
+  return getAuthInitials(authState);
 }
 
 function syncAccountUI() {
@@ -144,9 +123,51 @@ function syncAccountUI() {
   if (accountMenuTitle) accountMenuTitle.textContent = `${displayName}'s Workspace`;
   if (accountMenuSubtitle) {
     accountMenuSubtitle.textContent = authState?.email
-      ? `${authState.email} · ${authState.provider === "github" ? "GitHub" : "Email"}`
+      ? `${authState.email} · ${getAuthProviderLabel(authState)}`
       : "Your routes and exports are ready.";
   }
+}
+
+function updateAuthState(nextProfile = null) {
+  authState = buildAuthState(authSession, nextProfile);
+  syncAccountUI();
+}
+
+async function initializeAuthState() {
+  assertSupabaseConfigured();
+  const session = await getSession();
+
+  if (!session) {
+    redirectToLandingAuth();
+    return false;
+  }
+
+  authSession = session;
+  const profile = await waitForProfile(session.user.id);
+  updateAuthState(profile);
+
+  if (profileChannel) {
+    supabase.removeChannel(profileChannel);
+  }
+
+  profileChannel = subscribeToProfile(session.user.id, (nextProfile) => {
+    updateAuthState(nextProfile);
+  });
+
+  return true;
+}
+
+function getExportErrorMessage(error) {
+  const message = error?.message || "";
+  if (message.toLowerCase().includes("insufficient credits")) {
+    return `积分不足，导出一次需要 ${EXPORT_CREDIT_COST} 积分。`;
+  }
+
+  if (message.toLowerCase().includes("profile not found")) {
+    return "积分档案还没初始化完成，请稍后重试并确认 Supabase SQL 脚本已执行。";
+  }
+
+  return getAuthErrorMessage(error, "login");
 }
 
 function calculateDistanceKm(from, to) {
@@ -1222,10 +1243,26 @@ async function exportVideo() {
     return;
   }
 
+  if (getRemainingCredits() < EXPORT_CREDIT_COST) {
+    // eslint-disable-next-line no-alert
+    alert(`积分不足，导出一次需要 ${EXPORT_CREDIT_COST} 积分。`);
+    return;
+  }
+
   exportBtn.disabled = true;
-  exportBtn.textContent = "Exporting...";
+  exportBtn.textContent = "Charging...";
 
   try {
+    const creditResult = await consumeCredits(EXPORT_CREDIT_COST, "video_export");
+    if (creditResult && typeof creditResult.credits === "number") {
+      authState = {
+        ...authState,
+        credits: Math.max(0, creditResult.credits),
+      };
+      syncAccountUI();
+    }
+
+    exportBtn.textContent = "Exporting...";
     const usedType = latestPlaybackMimeType || mimeType;
     const ext = getVideoFileExtension(usedType);
     downloadBlob(latestPlaybackBlob, `trailframe-${Date.now()}.${ext}`);
@@ -1235,14 +1272,17 @@ async function exportVideo() {
     }
   } catch (error) {
     // eslint-disable-next-line no-alert
-    alert(error.message || "视频导出失败，请重试。");
+    alert(getExportErrorMessage(error));
   } finally {
     exportBtn.disabled = false;
     exportBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Export';
   }
 }
 
-if (authState) {
+function bindWorkspaceEvents() {
+  if (workspaceBound) return;
+  workspaceBound = true;
+
   generateBtn.addEventListener("click", async () => {
     try {
       const stops = await collectStops();
@@ -1289,8 +1329,13 @@ if (authState) {
       return;
     }
     if (target.closest("#accountSignOutBtn")) {
-      clearAuthState();
-      redirectToLandingAuth();
+      signOut()
+        .catch((error) => {
+          console.error(error);
+        })
+        .finally(() => {
+          redirectToLandingAuth();
+        });
       return;
     }
     closeAccountMenu();
@@ -1331,7 +1376,10 @@ if (authState) {
   initSidebarOverflowState();
   syncAccountUI();
 
-  window.addEventListener("beforeunload", () => scene?.destroy());
+  window.addEventListener("beforeunload", () => {
+    scene?.destroy();
+    if (profileChannel) supabase?.removeChannel(profileChannel);
+  });
   initModeToggles();
   enableInitialLegDistances();
   updateBasemapButtonUI();
@@ -1347,3 +1395,19 @@ if (authState) {
     ["plane"]
   );
 }
+
+async function bootstrapWorkspace() {
+  try {
+    const ready = await initializeAuthState();
+    if (!ready) return;
+    bindWorkspaceEvents();
+    syncAccountUI();
+  } catch (error) {
+    console.error(error);
+    // eslint-disable-next-line no-alert
+    alert(error.message || "账号初始化失败，请重新登录。");
+    redirectToLandingAuth();
+  }
+}
+
+bootstrapWorkspace();
