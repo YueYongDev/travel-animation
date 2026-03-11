@@ -53,6 +53,7 @@ const modeToggles = document.querySelectorAll(".mode-toggle[data-select]");
 let scene = null;
 let playing = false;
 let building = false;
+let sceneInitQueue = Promise.resolve();
 
 const MODES = ["plane", "train", "car", "ship", "bike", "walk"];
 const SPEED_OPTIONS = [1, 2, 4];
@@ -73,6 +74,7 @@ let dropPosition = "after";
 let latestPlaybackBlob = null;
 let latestPlaybackMimeType = "";
 let playbackRate = 1;
+let selectedTimelineRow = null;
 let authState = null;
 let authSession = null;
 let profileChannel = null;
@@ -566,10 +568,85 @@ function rowHasResolvedLocation(row) {
   return Boolean(parseCoord(input?.dataset.coord || "") && getResolvedRowValue(input));
 }
 
+function getCommittedRowState(row) {
+  const input = getRowInput(row);
+  if (!input) return null;
+
+  const coord = input.dataset.committedCoord || "";
+  const resolvedQuery = input.dataset.committedResolvedQuery || "";
+  if (!coord || !resolvedQuery) return null;
+
+  return {
+    coord,
+    country: input.dataset.committedCountry || "",
+    countryCode: input.dataset.committedCountryCode || "",
+    resolvedQuery,
+    value: input.dataset.committedValue || resolvedQuery,
+  };
+}
+
+function persistCommittedRowState(row) {
+  const input = getRowInput(row);
+  if (!input) return;
+
+  const coord = input.dataset.coord || "";
+  const resolvedQuery = input.dataset.resolvedQuery?.trim() || input.value.trim();
+  if (!coord || !resolvedQuery) return;
+
+  input.dataset.committedCoord = coord;
+  input.dataset.committedCountry = input.dataset.country || "";
+  input.dataset.committedCountryCode = input.dataset.countryCode || "";
+  input.dataset.committedResolvedQuery = resolvedQuery;
+  input.dataset.committedValue = resolvedQuery;
+}
+
+function restoreCommittedRowState(row) {
+  const input = getRowInput(row);
+  const committed = getCommittedRowState(row);
+  if (!input || !committed) return false;
+
+  input.value = committed.value;
+  input.dataset.coord = committed.coord;
+  input.dataset.country = committed.country;
+  input.dataset.resolvedQuery = committed.resolvedQuery;
+  if (committed.countryCode) {
+    input.dataset.countryCode = committed.countryCode;
+  } else {
+    delete input.dataset.countryCode;
+  }
+
+  return true;
+}
+
+function syncSelectedTimelineRow() {
+  const rows = getTimelineRows();
+  if (selectedTimelineRow && !rows.includes(selectedTimelineRow)) {
+    selectedTimelineRow = null;
+  }
+
+  rows.forEach((row) => {
+    row.classList.toggle(
+      "is-selected",
+      row === selectedTimelineRow &&
+        row.dataset.editing !== "true" &&
+        rowHasResolvedLocation(row),
+    );
+  });
+}
+
+function setSelectedTimelineRow(row) {
+  selectedTimelineRow = row ?? null;
+  syncSelectedTimelineRow();
+}
+
 function setRowEditing(row, editing, { focus = false } = {}) {
   if (!row) return;
   row.dataset.editing = editing ? "true" : "false";
+  if (editing && row === selectedTimelineRow) {
+    selectedTimelineRow = null;
+  }
   syncTimelineRowPresentation(row);
+  syncSelectedTimelineRow();
   if (editing && focus) {
     const input = getRowInput(row);
     window.requestAnimationFrame(() => input?.focus());
@@ -585,9 +662,12 @@ function syncTimelineRowPresentation(row, index = getTimelineRows().indexOf(row)
   const meta = row.querySelector(".row-display-meta");
   const displayCard = row.querySelector(".row-display-card");
   const deleteButton = row.querySelector('.row-card-action[data-action="delete"]');
+  const editDismissButton = row.querySelector(".row-edit-cancel");
   const isResolved = rowHasResolvedLocation(row);
   const isEditing = row.dataset.editing === "true" || !isResolved;
+  const committedState = getCommittedRowState(row);
   const rowValue = getResolvedRowValue(input);
+  const canDelete = getTimelineRows().length > 2;
 
   if (order) order.textContent = String(index + 1);
   if (title) title.textContent = getCityFromQuery(rowValue || input.placeholder || "New stop");
@@ -600,20 +680,28 @@ function syncTimelineRowPresentation(row, index = getTimelineRows().indexOf(row)
   if (displayCard) {
     displayCard.setAttribute(
       "aria-label",
-      isResolved ? `Edit ${title?.textContent || "stop"}` : "Confirm stop",
+      isResolved ? `Focus ${title?.textContent || "stop"} on map` : "Confirm stop",
     );
   }
 
   row.classList.toggle("is-editing", isEditing);
   row.classList.toggle("is-resolved", isResolved);
   if (deleteButton instanceof HTMLButtonElement) {
-    deleteButton.disabled = getTimelineRows().length <= 2;
+    deleteButton.disabled = !canDelete;
+  }
+  if (editDismissButton instanceof HTMLButtonElement) {
+    editDismissButton.disabled = !committedState && !canDelete;
+    editDismissButton.setAttribute(
+      "aria-label",
+      committedState ? "Cancel editing" : "Delete stop",
+    );
   }
 }
 
 function syncRouteRowsUI() {
   const rows = getTimelineRows();
   rows.forEach((row, index) => syncTimelineRowPresentation(row, index));
+  syncSelectedTimelineRow();
 }
 
 async function geocodeAddress(query) {
@@ -719,6 +807,7 @@ async function confirmRowInput(row) {
 
   const resolvedStop = await resolveStopFromInput(input);
   if (!resolvedStop) return;
+  persistCommittedRowState(row);
   setRowEditing(row, false);
   syncRouteRowsUI();
   await refreshPreviewSceneFromRows({ focusRow: row });
@@ -728,10 +817,11 @@ function cancelRowEditing(row) {
   const input = getRowInput(row);
   if (!input) return;
 
-  const resolvedQuery = input.dataset.resolvedQuery || "";
-  if (resolvedQuery) {
-    input.value = resolvedQuery;
+  if (restoreCommittedRowState(row)) {
     setRowEditing(row, false);
+  } else if (getTimelineRows().length > 2) {
+    removeDestinationRow(row);
+    return;
   } else {
     input.value = "";
     setRowEditing(row, true);
@@ -904,6 +994,9 @@ function bindRouteInput(input) {
   if (input.dataset.bound === "1") return;
   input.dataset.bound = "1";
   input.dataset.resolvedQuery = input.value.trim();
+  if (input.dataset.coord && input.dataset.resolvedQuery) {
+    persistCommittedRowState(input.closest(".timeline-row"));
+  }
   bindAddressSearch(input);
 
   input.addEventListener("input", () => {
@@ -939,7 +1032,14 @@ function bindTimelineRowControls(row) {
   const deleteActionBtn = row.querySelector('.row-card-action[data-action="delete"]');
 
   displayCard?.addEventListener("click", () => {
-    setRowEditing(row, true, { focus: true });
+    if (!rowHasResolvedLocation(row)) {
+      setRowEditing(row, true, { focus: true });
+      return;
+    }
+
+    if (!focusPreviewOnRow(row)) {
+      void refreshPreviewSceneFromRows({ focusRow: row });
+    }
   });
 
   editActionBtn?.addEventListener("click", () => {
@@ -1029,6 +1129,11 @@ function readRowState(row) {
   if (!input) return null;
 
   return {
+    committedCoord: input.dataset.committedCoord || "",
+    committedCountry: input.dataset.committedCountry || "",
+    committedCountryCode: input.dataset.committedCountryCode || "",
+    committedResolvedQuery: input.dataset.committedResolvedQuery || "",
+    committedValue: input.dataset.committedValue || "",
     value: input.value,
     coord: input.dataset.coord || "",
     country: input.dataset.country || "",
@@ -1061,6 +1166,36 @@ function writeRowState(row, state) {
     input.dataset.countryCode = state.countryCode;
   } else {
     delete input.dataset.countryCode;
+  }
+
+  if (state.committedCoord) {
+    input.dataset.committedCoord = state.committedCoord;
+  } else {
+    delete input.dataset.committedCoord;
+  }
+
+  if (state.committedCountry) {
+    input.dataset.committedCountry = state.committedCountry;
+  } else {
+    delete input.dataset.committedCountry;
+  }
+
+  if (state.committedCountryCode) {
+    input.dataset.committedCountryCode = state.committedCountryCode;
+  } else {
+    delete input.dataset.committedCountryCode;
+  }
+
+  if (state.committedResolvedQuery) {
+    input.dataset.committedResolvedQuery = state.committedResolvedQuery;
+  } else {
+    delete input.dataset.committedResolvedQuery;
+  }
+
+  if (state.committedValue) {
+    input.dataset.committedValue = state.committedValue;
+  } else {
+    delete input.dataset.committedValue;
   }
 
   row.dataset.editing = state.editing || "false";
@@ -1100,9 +1235,15 @@ function collectResolvedStopsFromRows() {
 async function refreshPreviewSceneFromRows({ focusRow = null } = {}) {
   const { stops, rowToStopIndex } = collectResolvedStopsFromRows();
   if (!stops.length) return;
+  if (focusRow) {
+    setSelectedTimelineRow(focusRow);
+  }
 
   const legModes = collectLegModes(Math.max(0, stops.length - 1));
-  const nextScene = await initScene(stops, legModes, { showRouteOverlay: false });
+  const nextScene = await initScene(stops, legModes, {
+    setBusyState: false,
+    showRouteOverlay: false,
+  });
   const focusStopIndex = focusRow ? rowToStopIndex.get(focusRow) : null;
   if (typeof focusStopIndex === "number") {
     await new Promise((resolve) => {
@@ -1112,6 +1253,18 @@ async function refreshPreviewSceneFromRows({ focusRow = null } = {}) {
     });
     nextScene?.focusStop?.(focusStopIndex);
   }
+}
+
+function focusPreviewOnRow(row) {
+  if (!scene || !row) return false;
+
+  const { rowToStopIndex } = collectResolvedStopsFromRows();
+  const stopIndex = rowToStopIndex.get(row);
+  if (typeof stopIndex !== "number") return false;
+
+  setSelectedTimelineRow(row);
+  scene.focusStop?.(stopIndex);
+  return true;
 }
 
 function reorderRowsByIndex(fromIndex, toIndex) {
@@ -1290,6 +1443,10 @@ function removeDestinationRow(row) {
   const rows = getTimelineRows();
   if (rows.length <= 2) return;
 
+  if (selectedTimelineRow === row) {
+    selectedTimelineRow = null;
+  }
+
   const index = rows.indexOf(row);
   if (index < 0) return;
 
@@ -1378,28 +1535,50 @@ function addDestinationRow() {
   requestAnimationFrame(updateSidebarOverflowState);
 }
 
-async function initScene(stops, legModes, { showRouteOverlay = true } = {}) {
-  if (building) return scene;
-  building = true;
-  syncGenerateButtonState();
-  if (!scene) {
-    scene = await createRemotionJourneyScene(
-      "globeContainer",
-      stops,
-      legModes,
-      playbackRate,
-      { showRouteOverlay },
-    );
-  } else {
-    scene.update?.(stops, legModes, { showRouteOverlay });
-  }
+async function initScene(
+  stops,
+  legModes,
+  { showRouteOverlay = true, setBusyState = true } = {},
+) {
+  const task = sceneInitQueue.catch(() => {}).then(async () => {
+    if (setBusyState) {
+      building = true;
+      syncGenerateButtonState();
+    }
 
-  hideArrival();
-  latestPlaybackBlob = null;
-  latestPlaybackMimeType = "";
-  building = false;
-  syncGenerateButtonState();
-  return scene;
+    try {
+      if (!scene) {
+        scene = await createRemotionJourneyScene(
+          "globeContainer",
+          stops,
+          legModes,
+          playbackRate,
+          { showRouteOverlay },
+        );
+      } else {
+        scene.update?.(stops, legModes, { showRouteOverlay });
+      }
+
+      scene.resetToStart?.();
+      await scene.whenReady?.();
+
+      if (setBusyState) {
+        hideArrival();
+        latestPlaybackBlob = null;
+        latestPlaybackMimeType = "";
+      }
+
+      return scene;
+    } finally {
+      if (setBusyState) {
+        building = false;
+        syncGenerateButtonState();
+      }
+    }
+  });
+
+  sceneInitQueue = task.catch(() => {});
+  return task;
 }
 
 function updateBasemapButtonUI() {
@@ -1415,6 +1594,7 @@ function cycleBasemap() {
 
 async function run() {
   if (!scene || playing) return;
+  await scene.whenReady?.();
   hideArrival();
   playing = true;
   playBtn.disabled = true;

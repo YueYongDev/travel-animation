@@ -11,6 +11,7 @@ import {
   useVideoConfig,
 } from "remotion";
 import mapboxgl, {Map} from "mapbox-gl";
+import {subscribePreviewFocus} from "../lib/previewFocusBus";
 import {
   DEFAULT_TRANSPORT_MODE,
   OPENING_HOLD_FRAMES,
@@ -99,6 +100,9 @@ const mapboxToken = process.env.REMOTION_MAPBOX_TOKEN;
 
 if (mapboxToken) {
   mapboxgl.accessToken = mapboxToken;
+  if (typeof window !== "undefined") {
+    mapboxgl.prewarm();
+  }
 }
 
 const lerp = (start: number, end: number, progress: number) => {
@@ -509,15 +513,7 @@ const getTravelCameraCenter = (
   );
 };
 
-const getTravelEasing = (segmentIndex: number, segmentCount: number) => {
-  if (segmentCount === 1) {
-    return Easing.inOut(Easing.sin);
-  }
-
-  if (segmentIndex === segmentCount - 1) {
-    return Easing.out(Easing.sin);
-  }
-
+const getTravelEasing = (_segmentIndex: number, _segmentCount: number) => {
   return Easing.linear;
 };
 
@@ -756,11 +752,54 @@ const getSingleStopView = (stop: ResolvedStop): TravelState => {
   };
 };
 
+const getPreviewFocusState = (
+  stopIndex: number,
+  segments: JourneySegment[],
+  stops: ResolvedStop[],
+): TravelState => {
+  const clampedIndex = Math.max(0, Math.min(stopIndex, stops.length - 1));
+  const fallbackStop = stops[clampedIndex] ?? stops[0];
+
+  if (!fallbackStop) {
+    return fallbackStop ? getSingleStopView(fallbackStop) : {center: [0, 0], pitch: 0, zoom: 2.8};
+  }
+
+  const previousSegment = clampedIndex > 0 ? segments[clampedIndex - 1] : null;
+  const nextSegment = segments[clampedIndex] ?? null;
+  const zoomCandidates = [
+    nextSegment?.travelStartZoom,
+    nextSegment?.focusZoom,
+    previousSegment
+      ? clamp(previousSegment.arrivalZoom + 1.15, previousSegment.arrivalZoom + 0.5, 7.4)
+      : null,
+    nextSegment?.overviewZoom,
+    6.0,
+  ].filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  const pitchCandidates = [
+    nextSegment ? Math.min(Math.max(nextSegment.profile.focusPitch - 1.5, 14), 26) : null,
+    previousSegment ? Math.min(Math.max(previousSegment.profile.focusPitch * 0.72, 12), 22) : null,
+    16,
+  ].filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  const zoom = clamp(zoomCandidates[0] ?? 6.0, 5.4, 7.4);
+  const pitch = clamp(pitchCandidates[0] ?? 16, 8, 26);
+
+  return {
+    center: wrapCoordinate(stopToCoordinate(fallbackStop)),
+    pitch,
+    zoom,
+  };
+};
+
 export const TravelMapJourney = ({
   legModes,
+  onFrameSettled,
+  previewSceneId,
   resolvedStops,
   showRouteOverlay = true,
-}: TravelMapJourneyProps) => {
+}: TravelMapJourneyProps & {
+  onFrameSettled?: (frame: number) => void;
+  previewSceneId?: string;
+}) => {
   const stops = resolvedStops ?? [];
   const normalizedLegModes = useMemo(() => {
     return normalizeLegModes(legModes, stops.length);
@@ -780,6 +819,11 @@ export const TravelMapJourney = ({
   const {delayRender, continueRender, cancelRender} = useDelayRender();
   const [handle] = useState(() => delayRender("Loading map..."));
   const [map, setMap] = useState<Map | null>(null);
+  const introReveal = 1;
+  const mapBlur = 0;
+  const mapScale = 1;
+  const mapOpacity = 1;
+  const veilOpacity = 0;
 
   const mapStyle = useMemo<CSSProperties>(() => {
     return {
@@ -819,6 +863,8 @@ export const TravelMapJourney = ({
       container: ref.current,
       fadeDuration: 0,
       interactive: false,
+      maxTileCacheSize: 512,
+      minTileCacheSize: 256,
       pitch: initialView.pitch,
       preserveDrawingBuffer: true,
       style: "mapbox://styles/mapbox/standard",
@@ -987,9 +1033,27 @@ export const TravelMapJourney = ({
     }
 
     const animationHandle = delayRender("Animating map...");
+    let settled = false;
+    let fallbackTimeoutId: number | null = null;
     const routeAnimationState =
       journeySegments.length > 0 ? getAnimationState(frame, journeySegments) : null;
     const cameraState = routeAnimationState ?? getSingleStopView(stops[0]);
+
+    const finalizeFrame = () => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      if (fallbackTimeoutId !== null) {
+        window.clearTimeout(fallbackTimeoutId);
+        fallbackTimeoutId = null;
+      }
+      continueRender(animationHandle);
+      onFrameSettled?.(frame);
+    };
+
+    map.once("idle", finalizeFrame);
 
     map.jumpTo({
       bearing: 0,
@@ -1040,10 +1104,63 @@ export const TravelMapJourney = ({
         : buildHeadPoint([], 0, 0, "opening"),
     );
 
-    map.once("idle", () => {
-      continueRender(animationHandle);
+    window.requestAnimationFrame(() => {
+      if (settled) {
+        return;
+      }
+
+      if (map.loaded() && map.areTilesLoaded()) {
+        finalizeFrame();
+      }
     });
-  }, [continueRender, delayRender, frame, journeySegments, map, markers, showRouteOverlay, stops]);
+
+    fallbackTimeoutId = window.setTimeout(finalizeFrame, 1200);
+
+    return () => {
+      if (fallbackTimeoutId !== null) {
+        window.clearTimeout(fallbackTimeoutId);
+      }
+      map.off("idle", finalizeFrame);
+    };
+  }, [
+    continueRender,
+    delayRender,
+    frame,
+    journeySegments,
+    map,
+    markers,
+    onFrameSettled,
+    showRouteOverlay,
+    stops,
+  ]);
+
+  useEffect(() => {
+    if (!map || !hasLoadedStyle.current || !previewSceneId || showRouteOverlay || stops.length === 0) {
+      return;
+    }
+
+    return subscribePreviewFocus((payload) => {
+      if (payload.sceneId !== previewSceneId) {
+        return;
+      }
+
+      const targetState = getPreviewFocusState(
+        payload.stopIndex,
+        journeySegments,
+        stops,
+      );
+
+      map.easeTo({
+        bearing: 0,
+        center: wrapCoordinate(targetState.center),
+        duration: 900,
+        easing: (value) => 1 - (1 - value) ** 3,
+        essential: true,
+        pitch: targetState.pitch,
+        zoom: targetState.zoom,
+      });
+    });
+  }, [journeySegments, map, previewSceneId, showRouteOverlay, stops]);
 
   if (!hasConfiguredMap) {
     return <MissingTokenMessage />;
@@ -1070,7 +1187,26 @@ export const TravelMapJourney = ({
 
   return (
     <AbsoluteFill style={{backgroundColor: "#cbd5e1"}}>
-      <div ref={ref} style={mapStyle} />
+      <div
+        style={{
+          ...mapStyle,
+          filter: `blur(${mapBlur}px) saturate(${interpolate(introReveal, [0, 1], [0.88, 1])})`,
+          opacity: mapOpacity,
+          transform: `scale(${mapScale})`,
+          transformOrigin: "center center",
+        }}
+      >
+        <div ref={ref} style={mapStyle} />
+      </div>
+      <AbsoluteFill
+        style={{
+          background: [
+            "radial-gradient(circle at 50% 42%, rgba(180, 225, 255, 0.4) 0%, rgba(180, 225, 255, 0.12) 26%, rgba(6, 11, 20, 0) 56%)",
+            "linear-gradient(180deg, rgba(247, 244, 234, 0.82) 0%, rgba(210, 230, 245, 0.24) 42%, rgba(7, 10, 17, 0.18) 100%)",
+          ].join(", "),
+          opacity: veilOpacity,
+        }}
+      />
       <AbsoluteFill
         style={{
           background:

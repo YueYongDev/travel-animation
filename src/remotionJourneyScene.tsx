@@ -9,6 +9,7 @@ import React, {
 } from "react";
 import {createRoot, type Root} from "react-dom/client";
 import {TravelMapJourney} from "./compositions/TravelMapJourney";
+import {emitPreviewFocus} from "./lib/previewFocusBus";
 import {
   COMPOSITION_FPS,
   COMPOSITION_HEIGHT,
@@ -44,7 +45,10 @@ type SceneController = {
 type SceneBridgeProps = {
   durationInFrames: number;
   initialPlaybackRate: number;
-  inputProps: TravelMapJourneyProps;
+  inputProps: TravelMapJourneyProps & {
+    onFrameSettled?: (frame: number) => void;
+    previewSceneId?: string;
+  };
 };
 
 type ScheduledEvent = {
@@ -254,18 +258,60 @@ export const createRemotionJourneyScene = async (
     currentLegModes,
     currentStopCoordinates,
   );
+  const previewSceneId = `preview-scene-${Math.random().toString(36).slice(2, 10)}`;
+  let renderGeneration = 0;
+  let frameWaiters: Array<{
+    frame: number;
+    generation: number;
+    resolve: () => void;
+  }> = [];
+  const settledFramesByGeneration = new Map<number, Set<number>>();
+
+  const resolveFrameWaiters = (generation: number, frame: number) => {
+    const settledFrames = settledFramesByGeneration.get(generation) ?? new Set<number>();
+    settledFrames.add(frame);
+    settledFramesByGeneration.set(generation, settledFrames);
+
+    frameWaiters = frameWaiters.filter((waiter) => {
+      if (waiter.generation !== generation || waiter.frame !== frame) {
+        return true;
+      }
+
+      waiter.resolve();
+      return false;
+    });
+  };
+
+  const waitForFrameSettled = (frame: number) => {
+    const generation = renderGeneration;
+    const settledFrames = settledFramesByGeneration.get(generation);
+    if (settledFrames?.has(frame)) {
+      return Promise.resolve();
+    }
+
+    return new Promise<void>((resolve) => {
+      frameWaiters.push({frame, generation, resolve});
+    });
+  };
 
   const renderScene = () => {
+    renderGeneration += 1;
+    const currentGeneration = renderGeneration;
+
     root.render(
       <SceneBridge
         ref={sceneRef}
         durationInFrames={currentDurationInFrames}
         initialPlaybackRate={playbackRate}
-        inputProps={toInputProps(
-          currentStops,
-          currentLegModes,
-          currentShowRouteOverlay,
-        )}
+        inputProps={{
+          ...toInputProps(
+            currentStops,
+            currentLegModes,
+            currentShowRouteOverlay,
+          ),
+          onFrameSettled: (frame) => resolveFrameWaiters(currentGeneration, frame),
+          previewSceneId,
+        }}
       />,
     );
   };
@@ -312,39 +358,12 @@ export const createRemotionJourneyScene = async (
     }
 
     const clampedIndex = Math.max(0, Math.min(stopIndex, currentStops.length - 1));
-    const targetFrame =
-      clampedIndex === 0
-        ? 0
-        : Math.max(0, (currentJourneySegments[clampedIndex - 1]?.travelEnd ?? 0));
-
     pause();
     stopFocusAnimation();
-
-    const startFrame = getCurrentFrame();
-    if (Math.abs(targetFrame - startFrame) < 1) {
-      sceneRef.current?.seekTo(targetFrame);
-      return;
-    }
-
-    const startedAt = performance.now();
-    const durationMs = 720;
-    const easeOutCubic = (value: number) => 1 - (1 - value) ** 3;
-
-    const tick = (now: number) => {
-      const progress = Math.min(1, (now - startedAt) / durationMs);
-      const easedProgress = easeOutCubic(progress);
-      const nextFrame = startFrame + (targetFrame - startFrame) * easedProgress;
-      sceneRef.current?.seekTo(nextFrame);
-
-      if (progress >= 1) {
-        focusAnimationFrameId = null;
-        return;
-      }
-
-      focusAnimationFrameId = window.requestAnimationFrame(tick);
-    };
-
-    focusAnimationFrameId = window.requestAnimationFrame(tick);
+    emitPreviewFocus({
+      sceneId: previewSceneId,
+      stopIndex: clampedIndex,
+    });
   };
 
   const getDelayFromFrame = (frame: number, fromFrame: number) => {
@@ -424,6 +443,8 @@ export const createRemotionJourneyScene = async (
     destroy: () => {
       stopFocusAnimation();
       clearTimers();
+      settledFramesByGeneration.clear();
+      frameWaiters = [];
       root.unmount();
       mountNode.remove();
     },
@@ -431,7 +452,8 @@ export const createRemotionJourneyScene = async (
       return getCaptureCanvas()?.toDataURL("image/png") ?? "";
     },
     pause,
-    play: (onArrival?: (payload: ArrivalPayload) => void) => {
+    play: async (onArrival?: (payload: ArrivalPayload) => void) => {
+      await waitForFrameSettled(0);
       clearTimers();
       latestArrivalHandler = onArrival;
       resetScheduledEvents();
@@ -443,6 +465,19 @@ export const createRemotionJourneyScene = async (
 
       return new Promise<void>((resolve) => {
         playResolve = resolve;
+      });
+    },
+    resetToStart: () => {
+      stopFocusAnimation();
+      clearTimers();
+      isPaused = false;
+      isPlaying = false;
+      playResolve = null;
+      sceneRef.current?.pause();
+      sceneRef.current?.seekTo(0);
+      window.requestAnimationFrame(() => {
+        sceneRef.current?.pause();
+        sceneRef.current?.seekTo(0);
       });
     },
     resume,
@@ -457,6 +492,7 @@ export const createRemotionJourneyScene = async (
       clearTimers();
       scheduleTimeouts(getCurrentFrame());
     },
+    whenReady: () => waitForFrameSettled(0),
     update: (
       nextStops: Stop[],
       nextLegModes: readonly TransportMode[] = [],

@@ -3,9 +3,11 @@ import type {TransportMode} from "./routeSchema";
 export const COMPOSITION_FPS = 30;
 export const COMPOSITION_WIDTH = 1920;
 export const COMPOSITION_HEIGHT = 1080;
-export const OPENING_HOLD_FRAMES = 18;
+export const OPENING_HOLD_FRAMES = 2;
 export const END_HOLD_FRAMES = 24;
 export const DEFAULT_TRANSPORT_MODE: TransportMode = "plane";
+const TRAVEL_FRAME_MULTIPLIER = 0.78;
+const FIRST_SEGMENT_FOCUS_MULTIPLIER = 0.2;
 type Coordinate = [number, number];
 
 export type JourneyStopCoordinate = {
@@ -79,12 +81,12 @@ export const TRANSPORT_PROFILES: Record<TransportMode, TransportProfile> = {
     focusZoomBoost: 4.25,
     holdFrames: 8,
     lineWidth: 8,
-    midPitchWave: 4.5,
+    midPitchWave: 3.6,
     midZoomWave: -0.6,
     sampleCount: 72,
     travelFrames: 96,
     travelLead: 0.14,
-    travelPitch: 12,
+    travelPitch: 9,
     travelStartZoomDelta: 0.2,
   },
   ship: {
@@ -162,7 +164,12 @@ export const normalizeLegModes = (
 };
 
 export const getTransportProfile = (mode: TransportMode) => {
-  return TRANSPORT_PROFILES[mode] ?? TRANSPORT_PROFILES[DEFAULT_TRANSPORT_MODE];
+  const profile = TRANSPORT_PROFILES[mode] ?? TRANSPORT_PROFILES[DEFAULT_TRANSPORT_MODE];
+
+  return {
+    ...profile,
+    travelFrames: Math.max(24, Math.round(profile.travelFrames * TRAVEL_FRAME_MULTIPLIER)),
+  };
 };
 
 const clamp = (value: number, min: number, max: number) => {
@@ -229,49 +236,11 @@ const getCameraSettleFrames = ({
   legModes: readonly TransportMode[];
   stopCoordinates: readonly JourneyStopCoordinate[] | undefined;
 }) => {
-  if (!stopCoordinates || index === 0) {
-    return 0;
-  }
+  void index;
+  void legModes;
+  void stopCoordinates;
 
-  const previousStart = toCoordinate(stopCoordinates[index - 1]);
-  const waypoint = toCoordinate(stopCoordinates[index]);
-  const nextEnd = toCoordinate(stopCoordinates[index + 1]);
-
-  if (!previousStart || !waypoint || !nextEnd) {
-    return 0;
-  }
-
-  const previousMode = legModes[index - 1] ?? DEFAULT_TRANSPORT_MODE;
-  const previousProfile = getTransportProfile(previousMode);
-  const previousDistanceKm = haversineDistanceKm(previousStart, waypoint);
-  const previousOverviewZoom = getOverviewZoom(previousDistanceKm, previousMode);
-  const previousArrivalZoom = clamp(
-    previousOverviewZoom + previousProfile.arrivalZoomDelta,
-    previousOverviewZoom,
-    10.8,
-  );
-
-  const nextMode = legModes[index] ?? DEFAULT_TRANSPORT_MODE;
-  const nextProfile = getTransportProfile(nextMode);
-  const nextDistanceKm = haversineDistanceKm(waypoint, nextEnd);
-  const nextOverviewZoom = getOverviewZoom(nextDistanceKm, nextMode);
-  const nextFocusZoom = clamp(
-    nextOverviewZoom + nextProfile.focusZoomBoost,
-    nextOverviewZoom + 0.45,
-    11.4,
-  );
-  const nextTravelStartZoom = clamp(
-    nextOverviewZoom + nextProfile.travelStartZoomDelta,
-    nextOverviewZoom,
-    nextFocusZoom,
-  );
-  const zoomDelta = nextTravelStartZoom - previousArrivalZoom;
-
-  if (zoomDelta <= 0.18) {
-    return 0;
-  }
-
-  return clamp(Math.round(zoomDelta * 7.2), 12, 32);
+  return 0;
 };
 
 export const buildJourneySegments = (
@@ -286,7 +255,10 @@ export const buildJourneySegments = (
   for (let index = 0; index < modes.length; index += 1) {
     const mode = modes[index];
     const profile = getTransportProfile(mode);
-    const focusFrames = index === 0 ? profile.focusFrames : 0;
+    const focusFrames =
+      index === 0
+        ? Math.max(4, Math.round(profile.focusFrames * FIRST_SEGMENT_FOCUS_MULTIPLIER))
+        : 0;
     const settleFrames = getCameraSettleFrames({
       index,
       legModes: modes,
