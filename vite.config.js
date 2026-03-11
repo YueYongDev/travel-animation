@@ -23,6 +23,9 @@ export default defineConfig(({mode}) => {
       __SUPABASE_ANON_KEY__: JSON.stringify(
         env.VITE_SUPABASE_ANON_KEY || env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
       ),
+      __AUTH_SITE_URL__: JSON.stringify(
+        env.VITE_AUTH_SITE_URL || env.NEXT_PUBLIC_AUTH_SITE_URL || "",
+      ),
       "process.env.REMOTION_MAPBOX_TOKEN": JSON.stringify(
         env.REMOTION_MAPBOX_TOKEN || "",
       ),

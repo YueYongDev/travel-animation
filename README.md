@@ -38,6 +38,25 @@ cp .env.example .env
 
 把 `.env` 里的 `REMOTION_MAPBOX_TOKEN` 替换成你自己的 token。
 
+## Supabase Auth
+
+前端通过以下环境变量连接 Supabase：
+
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
+
+如果你希望邮箱验证链接始终回到正式站点，而不是当前打开的域名，可以额外设置：
+
+- `VITE_AUTH_SITE_URL`
+
+例如：
+
+```bash
+VITE_AUTH_SITE_URL=https://your-domain.com
+```
+
+注册时会把这个地址作为 `emailRedirectTo` 传给 Supabase。
+
 ## 关键文件
 
 - `src/main.js`: 左侧 UI、地点输入、地理编码、排序逻辑

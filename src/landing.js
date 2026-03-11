@@ -35,6 +35,8 @@ let authMode = "login";
 let pendingRedirect = initialRedirect;
 let lastFocusedElement = null;
 let currentSession = null;
+const configuredAuthSiteUrl =
+  typeof __AUTH_SITE_URL__ === "string" ? __AUTH_SITE_URL__.trim() : "";
 
 function sanitizeRedirectTarget(target) {
   if (!target) return null;
@@ -185,7 +187,8 @@ async function refreshAuthState() {
 }
 
 function getOAuthReturnUrl() {
-  const returnUrl = new URL(window.location.pathname, window.location.origin);
+  const baseUrl = configuredAuthSiteUrl || window.location.origin;
+  const returnUrl = new URL(window.location.pathname, baseUrl);
   returnUrl.searchParams.set("auth", "login");
 
   const redirectTarget = pendingRedirect || getWorkspaceTarget();
@@ -278,6 +281,7 @@ authForm?.addEventListener("submit", async (event) => {
         email,
         password,
         options: {
+          emailRedirectTo: getOAuthReturnUrl(),
           data: {
             display_name: email.split("@")[0]?.replace(/[._-]+/g, " ").trim() || "TrailFrame",
           },
