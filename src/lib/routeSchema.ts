@@ -39,4 +39,5 @@ export type TravelMapJourneyProps = TravelMapJourneyInput & {
   legModes?: TransportMode[];
   resolvedStops?: ResolvedStop[];
   showRouteOverlay?: boolean;
+  syncMapFrames?: boolean;
 };

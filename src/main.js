@@ -49,6 +49,7 @@ const globeContainer = document.getElementById("globeContainer");
 const routeTimeline = document.getElementById("routeTimeline");
 const sidebarCard = document.querySelector(".sidebar-card");
 const modeToggles = document.querySelectorAll(".mode-toggle[data-select]");
+const motionDebugEnabled = new URLSearchParams(window.location.search).has("motionDebug");
 
 let scene = null;
 let playing = false;
@@ -79,6 +80,84 @@ let authState = null;
 let authSession = null;
 let profileChannel = null;
 let workspaceBound = false;
+let motionDebugPanel = null;
+let motionDebugTextarea = null;
+let motionDebugLiveText = "";
+let motionDebugSegmentsText = "";
+let motionDebugBoundaryText = "";
+
+function ensureMotionDebugPanel() {
+  if (!motionDebugEnabled || motionDebugPanel) {
+    return motionDebugPanel;
+  }
+
+  const panel = document.createElement("section");
+  panel.className = "motion-debug-panel";
+  panel.innerHTML = `
+    <div class="motion-debug-panel__header">
+      <strong>Motion Debug</strong>
+      <button type="button" class="motion-debug-panel__copy">Copy</button>
+    </div>
+    <textarea class="motion-debug-panel__output" readonly spellcheck="false"></textarea>
+  `;
+
+  const copyButton = panel.querySelector(".motion-debug-panel__copy");
+  const output = panel.querySelector(".motion-debug-panel__output");
+  if (!copyButton || !output) {
+    return null;
+  }
+
+  copyButton.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(output.value);
+      copyButton.textContent = "Copied";
+      window.setTimeout(() => {
+        copyButton.textContent = "Copy";
+      }, 1200);
+    } catch {
+      output.focus();
+      output.select();
+    }
+  });
+
+  motionDebugPanel = panel;
+  motionDebugTextarea = output;
+  document.body.appendChild(panel);
+  syncMotionDebugPanel();
+  return panel;
+}
+
+function syncMotionDebugPanel() {
+  if (!motionDebugEnabled || !motionDebugTextarea) {
+    return;
+  }
+
+  const sections = [
+    motionDebugLiveText,
+    motionDebugSegmentsText,
+    motionDebugBoundaryText,
+  ].filter(Boolean);
+  motionDebugTextarea.value = sections.join("\n\n");
+}
+
+function handleMotionDebugEvent(event) {
+  if (!motionDebugEnabled) {
+    return;
+  }
+
+  ensureMotionDebugPanel();
+  const detail = event?.detail || {};
+  if (typeof detail.segmentsText === "string") {
+    motionDebugSegmentsText = detail.segmentsText;
+  }
+  if (typeof detail.boundaryText === "string") {
+    motionDebugBoundaryText = detail.boundaryText;
+  }
+  if (typeof detail.liveText === "string") {
+    motionDebugLiveText = detail.liveText;
+  }
+  syncMotionDebugPanel();
+}
 
 function getRemainingCredits() {
   if (typeof authState?.credits === "number" && Number.isFinite(authState.credits)) {
@@ -1232,7 +1311,10 @@ function collectResolvedStopsFromRows() {
   return { rowToStopIndex, stops };
 }
 
-async function refreshPreviewSceneFromRows({ focusRow = null } = {}) {
+async function refreshPreviewSceneFromRows({
+  focusRow = null,
+  showRouteOverlay = false,
+} = {}) {
   const { stops, rowToStopIndex } = collectResolvedStopsFromRows();
   if (!stops.length) return;
   if (focusRow) {
@@ -1242,10 +1324,10 @@ async function refreshPreviewSceneFromRows({ focusRow = null } = {}) {
   const legModes = collectLegModes(Math.max(0, stops.length - 1));
   const nextScene = await initScene(stops, legModes, {
     setBusyState: false,
-    showRouteOverlay: false,
+    showRouteOverlay,
   });
   const focusStopIndex = focusRow ? rowToStopIndex.get(focusRow) : null;
-  if (typeof focusStopIndex === "number") {
+  if (typeof focusStopIndex === "number" && !showRouteOverlay) {
     await new Promise((resolve) => {
       window.requestAnimationFrame(() => {
         window.requestAnimationFrame(resolve);
@@ -1257,6 +1339,7 @@ async function refreshPreviewSceneFromRows({ focusRow = null } = {}) {
 
 function focusPreviewOnRow(row) {
   if (!scene || !row) return false;
+  if (scene.showsRouteOverlay?.()) return false;
 
   const { rowToStopIndex } = collectResolvedStopsFromRows();
   const stopIndex = rowToStopIndex.get(row);
@@ -1594,6 +1677,7 @@ function cycleBasemap() {
 
 async function run() {
   if (!scene || playing) return;
+  await refreshPreviewSceneFromRows({showRouteOverlay: true});
   await scene.whenReady?.();
   hideArrival();
   playing = true;
@@ -1648,6 +1732,14 @@ async function run() {
     playing = false;
     playBtn.disabled = false;
     playBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg> Replay';
+    try {
+      await refreshPreviewSceneFromRows({
+        focusRow: selectedTimelineRow,
+        showRouteOverlay: true,
+      });
+    } catch (error) {
+      console.error("Failed to restore interactive preview after playback", error);
+    }
   }
 }
 
@@ -1739,6 +1831,11 @@ async function exportVideo() {
 function bindWorkspaceEvents() {
   if (workspaceBound) return;
   workspaceBound = true;
+
+  if (motionDebugEnabled) {
+    ensureMotionDebugPanel();
+    window.addEventListener("travel-motion-debug", handleMotionDebugEvent);
+  }
 
   generateBtn.addEventListener("click", async () => {
     try {
@@ -1832,6 +1929,9 @@ function bindWorkspaceEvents() {
   window.addEventListener("beforeunload", () => {
     scene?.destroy();
     if (profileChannel) supabase?.removeChannel(profileChannel);
+    if (motionDebugEnabled) {
+      window.removeEventListener("travel-motion-debug", handleMotionDebugEvent);
+    }
   });
   initModeToggles();
   enableInitialLegDistances();

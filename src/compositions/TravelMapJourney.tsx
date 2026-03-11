@@ -1,7 +1,7 @@
 import "mapbox-gl/dist/mapbox-gl.css";
 
 import type {CSSProperties} from "react";
-import {useEffect, useMemo, useRef, useState} from "react";
+import {useEffect, useLayoutEffect, useMemo, useRef, useState} from "react";
 import {
   AbsoluteFill,
   Easing,
@@ -12,6 +12,10 @@ import {
 } from "remotion";
 import mapboxgl, {Map} from "mapbox-gl";
 import {subscribePreviewFocus} from "../lib/previewFocusBus";
+import {
+  TRANSPORT_SPRITE_FORWARD_BEARING,
+  createTransportVehicleImage,
+} from "../lib/transportVehicleSprite";
 import {
   DEFAULT_TRANSPORT_MODE,
   OPENING_HOLD_FRAMES,
@@ -85,16 +89,7 @@ const HIDE_FEATURES = [
   "show3dFacades",
 ] as const;
 
-const ACTIVE_ROUTE_REVEAL_LEAD = 0.018;
-const BADGE_SIZE = 128;
-const TRANSPORT_EMOJIS: Record<TransportMode, string> = {
-  bike: "🚲",
-  car: "🚗",
-  plane: "✈️",
-  ship: "🚢",
-  train: "🚆",
-  walk: "🚶",
-};
+const ROUTE_HANDOFF_PROGRESS = 0.12;
 
 const mapboxToken = process.env.REMOTION_MAPBOX_TOKEN;
 
@@ -111,6 +106,10 @@ const lerp = (start: number, end: number, progress: number) => {
 
 const clamp = (value: number, min: number, max: number) => {
   return Math.min(max, Math.max(min, value));
+};
+
+const normalizeDegrees = (value: number) => {
+  return ((((value % 360) + 360) % 360) + 360) % 360;
 };
 
 const getTransportBadgeId = (mode: TransportMode) => {
@@ -169,6 +168,21 @@ const haversineDistanceKm = (start: Coordinate, end: Coordinate) => {
   return 2 * earthRadiusKm * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
 
+const getBearing = (start: Coordinate, end: Coordinate) => {
+  const toRad = (value: number) => (value * Math.PI) / 180;
+  const toDeg = (value: number) => (value * 180) / Math.PI;
+  const lng1 = toRad(start[0]);
+  const lng2 = toRad(start[0] + shortestLongitudeDelta(start[0], end[0]));
+  const lat1 = toRad(start[1]);
+  const lat2 = toRad(end[1]);
+  const y = Math.sin(lng2 - lng1) * Math.cos(lat2);
+  const x =
+    Math.cos(lat1) * Math.sin(lat2) -
+    Math.sin(lat1) * Math.cos(lat2) * Math.cos(lng2 - lng1);
+
+  return normalizeDegrees(toDeg(Math.atan2(y, x)));
+};
+
 const getOverviewZoom = (distanceKm: number, mode: TransportMode) => {
   const raw = 7.4 - Math.log(distanceKm + 1) * 0.55;
   const modeBias: Record<TransportMode, number> = {
@@ -183,21 +197,274 @@ const getOverviewZoom = (distanceKm: number, mode: TransportMode) => {
   return clamp(raw + modeBias[mode], 2.15, 8.7);
 };
 
+const easeOutCubic = (value: number) => {
+  const clamped = clamp(value, 0, 1);
+  return 1 - (1 - clamped) ** 3;
+};
+
+const smoothstep = (value: number) => {
+  const clamped = clamp(value, 0, 1);
+  return clamped * clamped * (3 - 2 * clamped);
+};
+
+const getCurveDirectionSign = (start: Coordinate, end: Coordinate) => {
+  const seed = Math.sin(
+    (start[0] * 12.9898 + start[1] * 78.233 + end[0] * 37.719 + end[1] * 45.164) *
+      0.05,
+  );
+  return seed >= 0 ? 1 : -1;
+};
+
+const shortestAngleDelta = (start: number, end: number) => {
+  let delta = normalizeDegrees(end) - normalizeDegrees(start);
+  while (delta > 180) {
+    delta -= 360;
+  }
+  while (delta < -180) {
+    delta += 360;
+  }
+  return delta;
+};
+
+const mixAngle = (start: number, end: number, progress: number) => {
+  return normalizeDegrees(start + shortestAngleDelta(start, end) * clamp(progress, 0, 1));
+};
+
+type TransportMotionStyle = {
+  arrivalBlendStart: number;
+  curveCap: number;
+  curveDistanceKm: number;
+  curveMultiplier: number;
+  entryProgress: number;
+  focusLeadProgress: number;
+  headFollowMix: number;
+  launchWindow: number;
+  lookAheadMix: number;
+  midpointPull: number;
+  minSamples: number;
+  rotationBridgeWindow: number;
+  stabilizeMix: number;
+  travelEasing: (input: number) => number;
+  zoomBridgeWindow: number;
+};
+
+const TRANSPORT_MOTION_STYLES: Record<TransportMode, TransportMotionStyle> = {
+  bike: {
+    arrivalBlendStart: 0.82,
+    curveCap: 0.24,
+    curveDistanceKm: 420,
+    curveMultiplier: 0.11,
+    entryProgress: 0.004,
+    focusLeadProgress: 0.12,
+    headFollowMix: 0.92,
+    launchWindow: 0.16,
+    lookAheadMix: 0.32,
+    midpointPull: 0.08,
+    minSamples: 40,
+    rotationBridgeWindow: 0.12,
+    stabilizeMix: 0.54,
+    travelEasing: Easing.bezier(0.3, 0.08, 0.18, 1),
+    zoomBridgeWindow: 0.26,
+  },
+  car: {
+    arrivalBlendStart: 0.8,
+    curveCap: 0.52,
+    curveDistanceKm: 900,
+    curveMultiplier: 0.16,
+    entryProgress: 0.004,
+    focusLeadProgress: 0.1,
+    headFollowMix: 0.9,
+    launchWindow: 0.15,
+    lookAheadMix: 0.36,
+    midpointPull: 0.1,
+    minSamples: 42,
+    rotationBridgeWindow: 0.14,
+    stabilizeMix: 0.58,
+    travelEasing: Easing.bezier(0.28, 0.06, 0.18, 1),
+    zoomBridgeWindow: 0.28,
+  },
+  plane: {
+    arrivalBlendStart: 0,
+    curveCap: 0,
+    curveDistanceKm: 1,
+    curveMultiplier: 0,
+    entryProgress: 0,
+    focusLeadProgress: 0,
+    headFollowMix: 0.4,
+    launchWindow: 0,
+    lookAheadMix: 0.58,
+    midpointPull: 1,
+    minSamples: 72,
+    rotationBridgeWindow: 0,
+    stabilizeMix: 0.78,
+    travelEasing: Easing.linear,
+    zoomBridgeWindow: 0,
+  },
+  ship: {
+    arrivalBlendStart: 0.76,
+    curveCap: 1.8,
+    curveDistanceKm: 1600,
+    curveMultiplier: 0.2,
+    entryProgress: 0.003,
+    focusLeadProgress: 0.065,
+    headFollowMix: 0.82,
+    launchWindow: 0.18,
+    lookAheadMix: 0.38,
+    midpointPull: 0.3,
+    minSamples: 64,
+    rotationBridgeWindow: 0.18,
+    stabilizeMix: 0.62,
+    travelEasing: Easing.bezier(0.24, 0.08, 0.16, 1),
+    zoomBridgeWindow: 0.34,
+  },
+  train: {
+    arrivalBlendStart: 0.84,
+    curveCap: 0.34,
+    curveDistanceKm: 1200,
+    curveMultiplier: 0.12,
+    entryProgress: 0.003,
+    focusLeadProgress: 0.08,
+    headFollowMix: 0.88,
+    launchWindow: 0.12,
+    lookAheadMix: 0.42,
+    midpointPull: 0.06,
+    minSamples: 46,
+    rotationBridgeWindow: 0.18,
+    stabilizeMix: 0.7,
+    travelEasing: Easing.bezier(0.2, 0.06, 0.14, 1),
+    zoomBridgeWindow: 0.42,
+  },
+  walk: {
+    arrivalBlendStart: 0.86,
+    curveCap: 0.16,
+    curveDistanceKm: 260,
+    curveMultiplier: 0.08,
+    entryProgress: 0.004,
+    focusLeadProgress: 0.14,
+    headFollowMix: 0.94,
+    launchWindow: 0.18,
+    lookAheadMix: 0.28,
+    midpointPull: 0.05,
+    minSamples: 38,
+    rotationBridgeWindow: 0.12,
+    stabilizeMix: 0.5,
+    travelEasing: Easing.bezier(0.32, 0.08, 0.2, 1),
+    zoomBridgeWindow: 0.28,
+  },
+};
+
+const isMotionDebugEnabled = () => {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  const runtimeFlag = (window as typeof window & {__TRAVEL_MOTION_DEBUG__?: boolean})
+    .__TRAVEL_MOTION_DEBUG__;
+
+  return runtimeFlag === true || window.location.search.includes("motionDebug=1");
+};
+
+const formatCoordinateDebug = (coordinate: Coordinate) => {
+  return coordinate.map((value) => Number(value.toFixed(5))).join(", ");
+};
+
+const formatMotionDebugRows = (
+  title: string,
+  rows: Array<Record<string, number | string>>,
+) => {
+  if (rows.length === 0) {
+    return `${title}\n(empty)`;
+  }
+
+  const keys = Object.keys(rows[0]);
+  const lines = [title, keys.join("\t")];
+
+  for (const row of rows) {
+    lines.push(
+      keys
+        .map((key) => String(row[key] ?? "").replace(/\s+/g, " ").trim())
+        .join("\t"),
+    );
+  }
+
+  return lines.join("\n");
+};
+
+const emitMotionDebug = (detail: {
+  boundaryText?: string;
+  liveText?: string;
+  segmentsText?: string;
+}) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const event = new CustomEvent("travel-motion-debug", {detail});
+  window.dispatchEvent(event);
+
+  try {
+    if (window.top && window.top !== window) {
+      window.top.dispatchEvent(new CustomEvent("travel-motion-debug", {detail}));
+    }
+  } catch {
+    // Ignore cross-frame access errors and keep local window dispatch.
+  }
+};
+
 const buildBezierPath = (
   start: Coordinate,
   end: Coordinate,
   mode: TransportMode,
-  _distanceKm: number,
+  distanceKm: number,
 ) => {
   const profile = getTransportProfile(mode);
   const endLng = start[0] + shortestLongitudeDelta(start[0], end[0]);
-  const coordinates: Coordinate[] = [];
+  const motionStyle = TRANSPORT_MOTION_STYLES[mode];
 
-  for (let index = 0; index <= profile.sampleCount; index += 1) {
-    const progress = index / profile.sampleCount;
+  if (mode === "plane") {
+    const coordinates: Coordinate[] = [];
+
+    for (let index = 0; index <= profile.sampleCount; index += 1) {
+      const progress = index / profile.sampleCount;
+      coordinates.push([
+        lerp(start[0], endLng, progress),
+        lerp(start[1], end[1], progress),
+      ]);
+    }
+
+    return coordinates;
+  }
+
+  const averageLat = ((start[1] + end[1]) / 2) * (Math.PI / 180);
+  const lngScale = Math.max(Math.cos(averageLat), 0.25);
+  const deltaLng = (endLng - start[0]) * lngScale;
+  const deltaLat = end[1] - start[1];
+  const planarDistance = Math.hypot(deltaLng, deltaLat);
+  const midpoint: Coordinate = [
+    lerp(start[0], endLng, 0.5),
+    lerp(start[1], end[1], 0.5),
+  ];
+  const normalLng = planarDistance > 0.0001 ? -deltaLat / planarDistance / lngScale : 0;
+  const normalLat = planarDistance > 0.0001 ? deltaLng / planarDistance : 0;
+  const curveScale = clamp(distanceKm / motionStyle.curveDistanceKm, 0.12, 1);
+  const curveOffset = Math.min(
+    planarDistance * profile.curveStrength * motionStyle.curveMultiplier * curveScale,
+    motionStyle.curveCap,
+  );
+  const curveSign = getCurveDirectionSign(start, end);
+  const control: Coordinate = [
+    midpoint[0] + normalLng * curveOffset * curveSign,
+    midpoint[1] + normalLat * curveOffset * curveSign,
+  ];
+  const coordinates: Coordinate[] = [];
+  const sampleCount = Math.max(profile.sampleCount, motionStyle.minSamples);
+
+  for (let index = 0; index <= sampleCount; index += 1) {
+    const progress = index / sampleCount;
+    const inverse = 1 - progress;
     coordinates.push([
-      lerp(start[0], endLng, progress),
-      lerp(start[1], end[1], progress),
+      inverse * inverse * start[0] + 2 * inverse * progress * control[0] + progress * progress * endLng,
+      inverse * inverse * start[1] + 2 * inverse * progress * control[1] + progress * progress * end[1],
     ]);
   }
 
@@ -302,6 +569,22 @@ const getPartialPath = (path: Coordinate[], progress: number) => {
   return partial;
 };
 
+const getPathBearing = (path: Coordinate[], progress: number) => {
+  if (path.length < 2) {
+    return 0;
+  }
+
+  const samplingDelta = Math.max(1 / (path.length - 1), 0.016);
+  const from = getPathPoint(path, clamp(progress - samplingDelta, 0, 1));
+  const to = getPathPoint(path, clamp(progress + samplingDelta, 0, 1));
+
+  if (from[0] === to[0] && from[1] === to[1]) {
+    return getBearing(path[path.length - 2] ?? path[0], path[path.length - 1] ?? path[0]);
+  }
+
+  return getBearing(from, to);
+};
+
 const createModeExpression = (
   transform: (mode: TransportMode) => number | string,
 ) => {
@@ -326,43 +609,28 @@ const COMPLETED_ROUTE_WIDTH = createModeExpression((mode) => {
 });
 
 const HEAD_BADGE_SCALE = createModeExpression((mode) => {
-  return clamp(0.82 + (getTransportProfile(mode).lineWidth - 5.5) * 0.04, 0.82, 0.96);
+  const scaleByMode: Record<TransportMode, number> = {
+    bike: 0.94,
+    car: 0.96,
+    plane: 1.02,
+    ship: 1,
+    train: 0.98,
+    walk: 0.9,
+  };
+
+  return scaleByMode[mode];
 });
 
-const createTransportBadgeImage = (mode: TransportMode) => {
-  const canvas = document.createElement("canvas");
-  canvas.width = BADGE_SIZE;
-  canvas.height = BADGE_SIZE;
-
-  const context = canvas.getContext("2d");
-  if (!context) {
-    return new ImageData(BADGE_SIZE, BADGE_SIZE);
+const getActiveRouteRevealLead = (mode: TransportMode) => {
+  if (mode === "plane") {
+    return 0.018;
   }
 
-  const emoji = TRANSPORT_EMOJIS[mode];
-  const center = BADGE_SIZE / 2;
-  const radius = 44;
+  if (mode === "ship") {
+    return 0.006;
+  }
 
-  context.clearRect(0, 0, BADGE_SIZE, BADGE_SIZE);
-  context.shadowColor = "rgba(6, 11, 20, 0.22)";
-  context.shadowBlur = 12;
-  context.shadowOffsetY = 6;
-  context.beginPath();
-  context.arc(center, center, radius, 0, Math.PI * 2);
-  context.fillStyle = "#fff7ed";
-  context.fill();
-  context.shadowColor = "transparent";
-  context.lineWidth = 3;
-  context.strokeStyle = "rgba(15, 23, 42, 0.16)";
-  context.stroke();
-  context.font =
-    '60px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", system-ui, sans-serif';
-  context.textAlign = "center";
-  context.textBaseline = "middle";
-  context.fillStyle = "#111827";
-  context.fillText(emoji, center, center + 2);
-
-  return context.getImageData(0, 0, BADGE_SIZE, BADGE_SIZE);
+  return 0;
 };
 
 const buildMarkers = (stops: ResolvedStop[]) => {
@@ -387,10 +655,20 @@ const buildMarkers = (stops: ResolvedStop[]) => {
 const buildCompletedRoutes = (
   segments: JourneySegment[],
   currentSegment: number,
+  progress: number,
+  phase: AnimationPhase,
 ) => {
+  const shouldHoldPreviousActive =
+    currentSegment > 0 &&
+    (phase === "focus" || phase === "travel") &&
+    progress < ROUTE_HANDOFF_PROGRESS;
+  const completedSegmentCount = shouldHoldPreviousActive
+    ? Math.max(0, currentSegment - 1)
+    : currentSegment;
+
   return {
     type: "FeatureCollection" as const,
-    features: segments.slice(0, currentSegment).map((segment) => ({
+    features: segments.slice(0, completedSegmentCount).map((segment) => ({
       type: "Feature" as const,
       properties: {
         mode: segment.mode,
@@ -420,9 +698,14 @@ const buildActiveRoute = (
 
   const isPreviewTravel =
     phase === "travel" || (phase === "focus" && progress > 0.0001);
+  const routeRevealLead = getActiveRouteRevealLead(segment.mode);
   const routeProgress = isPreviewTravel
-    ? clamp(progress + ACTIVE_ROUTE_REVEAL_LEAD, 0, 1)
+    ? clamp(progress + routeRevealLead, 0, 1)
     : progress;
+  const shouldHoldPreviousActive =
+    currentSegment > 0 &&
+    isPreviewTravel &&
+    progress < ROUTE_HANDOFF_PROGRESS;
   const coordinates =
     isPreviewTravel
       ? getPartialPath(segment.path, routeProgress)
@@ -433,6 +716,20 @@ const buildActiveRoute = (
   return {
     type: "FeatureCollection" as const,
     features: [
+      ...(shouldHoldPreviousActive
+        ? [
+            {
+              type: "Feature" as const,
+              properties: {
+                mode: segments[currentSegment - 1]?.mode ?? segment.mode,
+              },
+              geometry: {
+                type: "LineString" as const,
+                coordinates: segments[currentSegment - 1]?.path ?? [segment.start, segment.start],
+              },
+            },
+          ]
+        : []),
       {
         type: "Feature" as const,
         properties: {
@@ -462,12 +759,19 @@ const buildHeadPoint = (
     };
   }
 
+  const routeProgress =
+    phase === "opening" || phase === "settle"
+      ? 0
+      : phase === "hold" || phase === "end"
+        ? 1
+        : progress;
   const coordinate =
     phase === "opening" || phase === "settle"
       ? segment.start
       : phase === "focus" || phase === "travel"
         ? getPathPoint(segment.path, progress)
         : segment.end;
+  const rotation = getHeadRotation(segments, currentSegment, routeProgress, phase);
 
   return {
     type: "FeatureCollection" as const,
@@ -477,6 +781,7 @@ const buildHeadPoint = (
         properties: {
           badge: getTransportBadgeId(segment.mode),
           mode: segment.mode,
+          rotation,
         },
         geometry: {
           type: "Point" as const,
@@ -489,9 +794,11 @@ const buildHeadPoint = (
 
 const getTravelCameraCenter = (
   segment: JourneySegment,
+  segmentIndex: number,
   progress: number,
 ): Coordinate => {
   const clamped = clamp(progress, 0, 1);
+  const motionStyle = TRANSPORT_MOTION_STYLES[segment.mode];
   const head = getPathPoint(segment.path, clamped);
   const lookAhead = getPathPoint(
     segment.path,
@@ -502,35 +809,72 @@ const getTravelCameraCenter = (
     clamp(clamped - Math.max(segment.profile.travelLead * 0.85, 0.03), 0, 1),
   );
   const midpoint = getPathPoint(segment.path, 0.5);
-  const leadCenter = mixCoordinate(head, lookAhead, 0.58);
-  const stabilizedCenter = mixCoordinate(tail, leadCenter, 0.78);
-  const pull = segment.profile.centerPull * Math.sin(Math.PI * clamped);
+  const leadCenter = mixCoordinate(head, lookAhead, motionStyle.lookAheadMix);
+  const stabilizedCenter = mixCoordinate(tail, leadCenter, motionStyle.stabilizeMix);
+  const pull =
+    segment.profile.centerPull * motionStyle.midpointPull * Math.sin(Math.PI * clamped);
 
-  return mixCoordinate(
-    mixCoordinate(stabilizedCenter, midpoint, pull),
-    segment.end,
-    clamped * clamped,
+  if (segment.mode === "plane") {
+    return mixCoordinate(
+      mixCoordinate(stabilizedCenter, midpoint, segment.profile.centerPull * Math.sin(Math.PI * clamped)),
+      segment.end,
+      clamped * clamped,
+    );
+  }
+
+  const trajectoryCenter = mixCoordinate(stabilizedCenter, midpoint, pull);
+  const anchoredCenter = mixCoordinate(
+    trajectoryCenter,
+    head,
+    motionStyle.headFollowMix,
   );
+  const launchBlend = easeOutCubic(clamp(clamped / motionStyle.launchWindow, 0, 1));
+  const enteredCenter =
+    segmentIndex === 0
+      ? mixCoordinate(segment.start, anchoredCenter, launchBlend)
+      : anchoredCenter;
+  const arrivalBlend = easeOutCubic(
+    clamp(
+      (clamped - motionStyle.arrivalBlendStart) /
+        Math.max(1 - motionStyle.arrivalBlendStart, 0.001),
+      0,
+      1,
+    ),
+  );
+
+  return mixCoordinate(enteredCenter, segment.end, arrivalBlend);
 };
 
-const getTravelEasing = (_segmentIndex: number, _segmentCount: number) => {
-  return Easing.linear;
+const getTravelEasing = (segment: JourneySegment) => {
+  return TRANSPORT_MOTION_STYLES[segment.mode].travelEasing;
+};
+
+const getTravelStartProgress = (
+  segment: JourneySegment,
+  segmentIndex: number,
+) => {
+  if (segmentIndex > 0) {
+    return TRANSPORT_MOTION_STYLES[segment.mode].entryProgress;
+  }
+
+  return TRANSPORT_MOTION_STYLES[segment.mode].focusLeadProgress;
 };
 
 const getTravelProgress = (
   frame: number,
   segment: JourneySegment,
   segmentIndex: number,
-  segmentCount: number,
+  _segmentCount: number,
 ) => {
   const lastTravelFrame = Math.max(segment.travelStart, segment.travelEnd - 1);
+  const startProgress = getTravelStartProgress(segment, segmentIndex);
 
   return interpolate(
     frame,
     [segment.travelStart, lastTravelFrame],
-    [0, 1],
+    [startProgress, 1],
     {
-      easing: getTravelEasing(segmentIndex, segmentCount),
+      easing: getTravelEasing(segment),
       extrapolateLeft: "clamp",
       extrapolateRight: "clamp",
     },
@@ -540,29 +884,75 @@ const getTravelProgress = (
 const getTravelState = (
   segment: JourneySegment,
   segmentIndex: number,
-  segmentCount: number,
+  _segmentCount: number,
   progress: number,
+  previousSegment?: JourneySegment,
 ): TravelState => {
   const travelStartPitch = segmentIndex === 0 ? segment.profile.travelPitch : 0;
+  const motionStyle = TRANSPORT_MOTION_STYLES[segment.mode];
   const travelPitchWave =
     segmentIndex === 0
       ? segment.profile.midPitchWave
       : Math.max(segment.profile.midPitchWave * 0.7, 1.2);
+  const baseZoom = clamp(
+    lerp(segment.travelStartZoom, segment.arrivalZoom, progress) +
+      Math.sin(Math.PI * progress) * segment.profile.midZoomWave,
+    2.1,
+    11.6,
+  );
+  const zoomBridge =
+    segmentIndex > 0 && previousSegment && motionStyle.zoomBridgeWindow > 0
+      ? smoothstep(clamp(progress / motionStyle.zoomBridgeWindow, 0, 1))
+      : 1;
+  const zoom = previousSegment
+    ? lerp(previousSegment.arrivalZoom, baseZoom, zoomBridge)
+    : baseZoom;
 
   return {
-    center: getTravelCameraCenter(segment, progress),
+    center: getTravelCameraCenter(segment, segmentIndex, progress),
     pitch: Math.max(
       0,
       lerp(travelStartPitch, 0, progress) +
         Math.sin(Math.PI * progress) * travelPitchWave,
     ),
-    zoom: clamp(
-      lerp(segment.travelStartZoom, segment.arrivalZoom, progress) +
-        Math.sin(Math.PI * progress) * segment.profile.midZoomWave,
-      2.1,
-      11.6,
-    ),
+    zoom,
   };
+};
+
+const getHeadRotation = (
+  segments: JourneySegment[],
+  segmentIndex: number,
+  progress: number,
+  phase: AnimationPhase,
+) => {
+  const segment = segments[segmentIndex];
+  if (!segment) {
+    return 0;
+  }
+
+  const currentRotation = normalizeDegrees(
+    getPathBearing(segment.path, progress) - TRANSPORT_SPRITE_FORWARD_BEARING,
+  );
+  const previousSegment = segmentIndex > 0 ? segments[segmentIndex - 1] : null;
+  const motionStyle = TRANSPORT_MOTION_STYLES[segment.mode];
+
+  if (
+    !previousSegment ||
+    phase === "opening" ||
+    phase === "settle" ||
+    phase === "hold" ||
+    phase === "end" ||
+    motionStyle.rotationBridgeWindow <= 0
+  ) {
+    return currentRotation;
+  }
+
+  const previousRotation = normalizeDegrees(
+    getPathBearing(previousSegment.path, 1) - TRANSPORT_SPRITE_FORWARD_BEARING,
+  );
+  const bridge = smoothstep(clamp(progress / motionStyle.rotationBridgeWindow, 0, 1));
+
+  return mixAngle(previousRotation, currentRotation, bridge);
 };
 
 const MissingTokenMessage = () => {
@@ -656,23 +1046,54 @@ const getAnimationState = (
     const focusStartPitch = index === 0 ? segment.profile.focusPitch : 0;
 
     if (frame < segment.focusEnd) {
+      const focusEasing =
+        index === 0 ? Easing.bezier(0.22, 0.86, 0.22, 1) : Easing.linear;
       const phase = interpolate(frame, [segment.focusStart, segment.focusEnd], [0, 1], {
-        easing: Easing.bezier(0.22, 0.86, 0.22, 1),
+        easing: focusEasing,
         extrapolateLeft: "clamp",
         extrapolateRight: "clamp",
       });
+      const focusLeadProgress = getTravelStartProgress(segment, index);
+      const focusStartProgress =
+        index === 0 ? 0 : Math.min(focusLeadProgress * 0.22, focusLeadProgress);
+      const focusEndProgress =
+        index === 0
+          ? focusLeadProgress
+          : Math.min(Math.max(focusLeadProgress, focusStartProgress + 0.06), 0.24);
+      const focusTravelStartState = getTravelState(
+        segment,
+        index,
+        segments.length,
+        focusStartProgress,
+        previousSegment,
+      );
+      const focusTravelEndState = getTravelState(
+        segment,
+        index,
+        segments.length,
+        focusEndProgress,
+        previousSegment,
+      );
 
       return {
-        center: mixCoordinate(
-          segment.start,
-          getTravelCameraCenter(segment, 0),
-          phase,
-        ),
+        center:
+          index === 0
+            ? mixCoordinate(segment.start, focusTravelEndState.center, phase)
+            : mixCoordinate(focusTravelStartState.center, focusTravelEndState.center, phase),
         currentSegment: index,
         phase: "focus",
-        pitch: lerp(focusStartPitch, segment.profile.travelPitch, phase),
-        routeProgress: 0,
-        zoom: lerp(focusStartZoom, segment.travelStartZoom, phase),
+        pitch:
+          index === 0
+            ? lerp(focusStartPitch, focusTravelEndState.pitch, phase)
+            : lerp(focusTravelStartState.pitch, focusTravelEndState.pitch, phase),
+        routeProgress:
+          index === 0
+            ? lerp(0, focusLeadProgress, phase)
+            : lerp(focusStartProgress, focusEndProgress, phase),
+        zoom:
+          index === 0
+            ? lerp(focusStartZoom, focusTravelEndState.zoom, phase)
+            : lerp(focusTravelStartState.zoom, focusTravelEndState.zoom, phase),
       };
     }
 
@@ -689,6 +1110,7 @@ const getAnimationState = (
         index,
         segments.length,
         0,
+        previousSegment,
       );
 
       return {
@@ -708,6 +1130,7 @@ const getAnimationState = (
         index,
         segments.length,
         phase,
+        previousSegment,
       );
 
       return {
@@ -790,12 +1213,82 @@ const getPreviewFocusState = (
   };
 };
 
+const getDebugHeadState = (
+  segments: JourneySegment[],
+  state: AnimationState,
+) => {
+  const segment = segments[state.currentSegment];
+
+  if (!segment) {
+    return null;
+  }
+
+  const routeProgress =
+    state.phase === "opening" || state.phase === "settle"
+      ? 0
+      : state.phase === "hold" || state.phase === "end"
+        ? 1
+        : state.routeProgress;
+  const coordinate =
+    state.phase === "opening" || state.phase === "settle"
+      ? segment.start
+      : state.phase === "focus" || state.phase === "travel"
+        ? getPathPoint(segment.path, routeProgress)
+        : segment.end;
+  const rotation = normalizeDegrees(
+    getHeadRotation(
+      segments,
+      state.currentSegment,
+      routeProgress,
+      state.phase,
+    ),
+  );
+
+  return {
+    coordinate,
+    rotation,
+  };
+};
+
+const getDebugRouteTipState = (
+  segments: JourneySegment[],
+  state: AnimationState,
+) => {
+  const segment = segments[state.currentSegment];
+
+  if (!segment) {
+    return null;
+  }
+
+  const isPreviewTravel =
+    state.phase === "travel" || (state.phase === "focus" && state.routeProgress > 0.0001);
+  const routeProgress = isPreviewTravel
+    ? clamp(
+        state.routeProgress + getActiveRouteRevealLead(segment.mode),
+        0,
+        1,
+      )
+    : state.phase === "hold" || state.phase === "end"
+      ? 1
+      : state.routeProgress;
+
+  return {
+    coordinate:
+      state.phase === "opening" || state.phase === "settle"
+        ? segment.start
+        : state.phase === "hold" || state.phase === "end"
+          ? segment.end
+          : getPathPoint(segment.path, routeProgress),
+  };
+};
+
 export const TravelMapJourney = ({
   legModes,
   onFrameSettled,
   previewSceneId,
   resolvedStops,
   showRouteOverlay = true,
+  syncMapFrames = false,
 }: TravelMapJourneyProps & {
   onFrameSettled?: (frame: number) => void;
   previewSceneId?: string;
@@ -815,6 +1308,9 @@ export const TravelMapJourney = ({
   const hasLoadedStyle = useRef(false);
   const didContinueInitialRender = useRef(false);
   const mapRef = useRef<Map | null>(null);
+  const motionDebugRowsRef = useRef<Array<Record<string, number | string>>>([]);
+  const motionDebugLastCenterRef = useRef<Coordinate | null>(null);
+  const motionDebugLastFrameRef = useRef<number>(-1);
 
   const {delayRender, continueRender, cancelRender} = useDelayRender();
   const [handle] = useState(() => delayRender("Loading map..."));
@@ -834,6 +1330,160 @@ export const TravelMapJourney = ({
       width,
     };
   }, [height, width]);
+
+  const routeAnimationState = useMemo(() => {
+    return journeySegments.length > 0 ? getAnimationState(frame, journeySegments) : null;
+  }, [frame, journeySegments]);
+
+  useEffect(() => {
+    if (!isMotionDebugEnabled()) {
+      return;
+    }
+
+    const rows = journeySegments.map((segment, index) => {
+      const previousSegment = journeySegments[index - 1];
+
+      return {
+        arrivalZoom: Number(segment.arrivalZoom.toFixed(3)),
+        boundaryZoomDelta: previousSegment
+          ? Number((segment.travelStartZoom - previousSegment.arrivalZoom).toFixed(3))
+          : 0,
+        end: segment.end.map((value) => Number(value.toFixed(4))).join(", "),
+        mode: segment.mode,
+        pathEnd:
+          segment.path.at(-1)?.map((value) => Number(value.toFixed(4))).join(", ") ?? "",
+        pathMid:
+          segment.path[Math.floor(segment.path.length / 2)]
+            ?.map((value) => Number(value.toFixed(4)))
+            .join(", ") ?? "",
+        pathStart: segment.path[0]?.map((value) => Number(value.toFixed(4))).join(", "),
+        segment: index,
+        start: segment.start.map((value) => Number(value.toFixed(4))).join(", "),
+        travelStartZoom: Number(segment.travelStartZoom.toFixed(3)),
+      };
+    });
+
+    emitMotionDebug({
+      segmentsText: formatMotionDebugRows("[travel-motion] segments", rows),
+    });
+  }, [journeySegments]);
+
+  useEffect(() => {
+    if (!isMotionDebugEnabled() || journeySegments.length < 2) {
+      return;
+    }
+
+    const rows: Array<Record<string, number | string>> = [];
+
+    for (let index = 0; index < journeySegments.length - 1; index += 1) {
+      const currentSegment = journeySegments[index];
+      const transitionFrame = currentSegment.travelEnd;
+      let previousCenter: Coordinate | null = null;
+
+      for (let frameIndex = transitionFrame - 3; frameIndex <= transitionFrame + 3; frameIndex += 1) {
+        if (frameIndex < 0) {
+          continue;
+        }
+
+        const state = getAnimationState(frameIndex, journeySegments);
+        const head = getDebugHeadState(journeySegments, state);
+        const routeTip = getDebugRouteTipState(journeySegments, state);
+        const centerDeltaKm = previousCenter
+          ? haversineDistanceKm(previousCenter, state.center)
+          : 0;
+        const headOffsetKm = head
+          ? haversineDistanceKm(state.center, head.coordinate)
+          : 0;
+        const routeTipOffsetKm =
+          head && routeTip
+            ? haversineDistanceKm(head.coordinate, routeTip.coordinate)
+            : 0;
+
+        rows.push({
+          center: formatCoordinateDebug(state.center),
+          centerDeltaKm: Number(centerDeltaKm.toFixed(3)),
+          frame: frameIndex,
+          head: head ? formatCoordinateDebug(head.coordinate) : "",
+          headOffsetKm: Number(headOffsetKm.toFixed(3)),
+          phase: state.phase,
+          pitch: Number(state.pitch.toFixed(3)),
+          rotation: head ? Number(head.rotation.toFixed(2)) : "",
+          routeTipOffsetKm: Number(routeTipOffsetKm.toFixed(3)),
+          routeProgress: Number(state.routeProgress.toFixed(4)),
+          segment: state.currentSegment,
+          transition: `${index}->${index + 1}`,
+          zoom: Number(state.zoom.toFixed(3)),
+        });
+
+        previousCenter = state.center;
+      }
+    }
+
+    emitMotionDebug({
+      boundaryText: formatMotionDebugRows("[travel-motion] boundary frames", rows),
+    });
+  }, [journeySegments]);
+
+  useEffect(() => {
+    if (!isMotionDebugEnabled()) {
+      return;
+    }
+
+    if (!routeAnimationState) {
+      motionDebugRowsRef.current = [];
+      motionDebugLastCenterRef.current = null;
+      motionDebugLastFrameRef.current = -1;
+      emitMotionDebug({
+        liveText: formatMotionDebugRows("[travel-motion] live frames", []),
+      });
+      return;
+    }
+
+    if (frame <= motionDebugLastFrameRef.current) {
+      motionDebugRowsRef.current = [];
+      motionDebugLastCenterRef.current = null;
+    }
+
+    const head = getDebugHeadState(journeySegments, routeAnimationState);
+    const routeTip = getDebugRouteTipState(journeySegments, routeAnimationState);
+    const centerDeltaKm = motionDebugLastCenterRef.current
+      ? haversineDistanceKm(motionDebugLastCenterRef.current, routeAnimationState.center)
+      : 0;
+    const headOffsetKm = head
+      ? haversineDistanceKm(routeAnimationState.center, head.coordinate)
+      : 0;
+    const routeTipOffsetKm =
+      head && routeTip
+        ? haversineDistanceKm(head.coordinate, routeTip.coordinate)
+        : 0;
+    const segment = journeySegments[routeAnimationState.currentSegment];
+    const nextRows = [
+      ...motionDebugRowsRef.current.slice(-11),
+      {
+        center: formatCoordinateDebug(routeAnimationState.center),
+        centerDeltaKm: Number(centerDeltaKm.toFixed(3)),
+        frame,
+        head: head ? formatCoordinateDebug(head.coordinate) : "",
+        headOffsetKm: Number(headOffsetKm.toFixed(3)),
+        mode: segment?.mode ?? "",
+        phase: routeAnimationState.phase,
+        pitch: Number(routeAnimationState.pitch.toFixed(3)),
+        rotation: head ? Number(head.rotation.toFixed(2)) : "",
+        routeTipOffsetKm: Number(routeTipOffsetKm.toFixed(3)),
+        routeProgress: Number(routeAnimationState.routeProgress.toFixed(4)),
+        segment: routeAnimationState.currentSegment,
+        zoom: Number(routeAnimationState.zoom.toFixed(3)),
+      },
+    ];
+
+    motionDebugRowsRef.current = nextRows;
+    motionDebugLastCenterRef.current = routeAnimationState.center;
+    motionDebugLastFrameRef.current = frame;
+
+    emitMotionDebug({
+      liveText: formatMotionDebugRows("[travel-motion] live frames", nextRows),
+    });
+  }, [frame, journeySegments, routeAnimationState]);
 
   useEffect(() => {
     if (!hasConfiguredMap) {
@@ -889,7 +1539,7 @@ export const TravelMapJourney = ({
       for (const mode of transportModes) {
         const badgeId = getTransportBadgeId(mode);
         if (!mapInstance.hasImage(badgeId)) {
-          mapInstance.addImage(badgeId, createTransportBadgeImage(mode), {
+          mapInstance.addImage(badgeId, createTransportVehicleImage(mode), {
             pixelRatio: 2,
           });
         }
@@ -897,7 +1547,7 @@ export const TravelMapJourney = ({
 
       mapInstance.addSource("completed-routes", {
         type: "geojson",
-        data: buildCompletedRoutes([], 0),
+        data: buildCompletedRoutes([], 0, 0, "opening"),
       });
 
       mapInstance.addLayer({
@@ -948,8 +1598,13 @@ export const TravelMapJourney = ({
           "icon-anchor": "center",
           "icon-ignore-placement": true,
           "icon-image": ["get", "badge"],
-          "icon-pitch-alignment": "viewport",
+          "icon-pitch-alignment": "map",
+          "icon-rotate": ["get", "rotation"],
+          "icon-rotation-alignment": "map",
           "icon-size": HEAD_BADGE_SCALE,
+        },
+        paint: {
+          "icon-opacity": 0.98,
         },
       });
 
@@ -1027,16 +1682,17 @@ export const TravelMapJourney = ({
     };
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!map || !hasLoadedStyle.current || stops.length === 0) {
       return;
     }
 
-    const animationHandle = delayRender("Animating map...");
+    const shouldSyncFrame = syncMapFrames;
+    const animationHandle = shouldSyncFrame ? delayRender("Animating map...") : null;
     let settled = false;
     let fallbackTimeoutId: number | null = null;
-    const routeAnimationState =
-      journeySegments.length > 0 ? getAnimationState(frame, journeySegments) : null;
+    const shouldWaitForTiles = shouldSyncFrame || frame === 0;
+    const settleEvent = shouldWaitForTiles ? "idle" : "render";
     const cameraState = routeAnimationState ?? getSingleStopView(stops[0]);
 
     const finalizeFrame = () => {
@@ -1049,11 +1705,11 @@ export const TravelMapJourney = ({
         window.clearTimeout(fallbackTimeoutId);
         fallbackTimeoutId = null;
       }
-      continueRender(animationHandle);
+      if (animationHandle !== null) {
+        continueRender(animationHandle);
+      }
       onFrameSettled?.(frame);
     };
-
-    map.once("idle", finalizeFrame);
 
     map.jumpTo({
       bearing: 0,
@@ -1072,8 +1728,13 @@ export const TravelMapJourney = ({
       | undefined;
     completedRoutes?.setData(
       showRouteOverlay && routeAnimationState
-        ? buildCompletedRoutes(journeySegments, routeAnimationState.currentSegment)
-        : buildCompletedRoutes([], 0),
+        ? buildCompletedRoutes(
+            journeySegments,
+            routeAnimationState.currentSegment,
+            routeAnimationState.routeProgress,
+            routeAnimationState.phase,
+          )
+        : buildCompletedRoutes([], 0, 0, "opening"),
     );
 
     const activeRoute = map.getSource("active-route") as
@@ -1104,23 +1765,35 @@ export const TravelMapJourney = ({
         : buildHeadPoint([], 0, 0, "opening"),
     );
 
+    if (!shouldSyncFrame) {
+      fallbackTimeoutId = window.setTimeout(finalizeFrame, 32);
+
+      return () => {
+        if (fallbackTimeoutId !== null) {
+          window.clearTimeout(fallbackTimeoutId);
+        }
+      };
+    }
+
+    map.once(settleEvent, finalizeFrame);
+
     window.requestAnimationFrame(() => {
       if (settled) {
         return;
       }
 
-      if (map.loaded() && map.areTilesLoaded()) {
+      if (!shouldWaitForTiles || (map.loaded() && map.areTilesLoaded())) {
         finalizeFrame();
       }
     });
 
-    fallbackTimeoutId = window.setTimeout(finalizeFrame, 1200);
+    fallbackTimeoutId = window.setTimeout(finalizeFrame, shouldWaitForTiles ? 1200 : 180);
 
     return () => {
       if (fallbackTimeoutId !== null) {
         window.clearTimeout(fallbackTimeoutId);
       }
-      map.off("idle", finalizeFrame);
+      map.off(settleEvent, finalizeFrame);
     };
   }, [
     continueRender,
@@ -1131,6 +1804,7 @@ export const TravelMapJourney = ({
     markers,
     onFrameSettled,
     showRouteOverlay,
+    syncMapFrames,
     stops,
   ]);
 

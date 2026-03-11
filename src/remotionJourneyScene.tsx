@@ -244,6 +244,7 @@ export const createRemotionJourneyScene = async (
   let currentStops = stops;
   let currentLegModes = normalizeLegModes(legModes, stops.length);
   let currentShowRouteOverlay = showRouteOverlay;
+  let currentSyncMapFrames = false;
   let currentStopCoordinates: JourneyStopCoordinate[] = stops.map((stop) => ({
     lat: stop.lat,
     lon: stop.lon,
@@ -309,6 +310,7 @@ export const createRemotionJourneyScene = async (
             currentLegModes,
             currentShowRouteOverlay,
           ),
+          syncMapFrames: currentSyncMapFrames,
           onFrameSettled: (frame) => resolveFrameWaiters(currentGeneration, frame),
           previewSceneId,
         }}
@@ -453,6 +455,10 @@ export const createRemotionJourneyScene = async (
     },
     pause,
     play: async (onArrival?: (payload: ArrivalPayload) => void) => {
+      if (!currentSyncMapFrames) {
+        currentSyncMapFrames = true;
+        renderScene();
+      }
       await waitForFrameSettled(0);
       clearTimers();
       latestArrivalHandler = onArrival;
@@ -473,6 +479,7 @@ export const createRemotionJourneyScene = async (
       isPaused = false;
       isPlaying = false;
       playResolve = null;
+      currentSyncMapFrames = false;
       sceneRef.current?.pause();
       sceneRef.current?.seekTo(0);
       window.requestAnimationFrame(() => {
@@ -503,6 +510,7 @@ export const createRemotionJourneyScene = async (
       isPaused = false;
       isPlaying = false;
       playResolve = null;
+      currentSyncMapFrames = false;
       currentStops = nextStops;
       currentLegModes = normalizeLegModes(nextLegModes, nextStops.length);
       currentShowRouteOverlay =
@@ -526,6 +534,7 @@ export const createRemotionJourneyScene = async (
       renderScene();
     },
     focusStop,
+    showsRouteOverlay: () => currentShowRouteOverlay,
     setBasemap: () => "standard",
     viewer: {
       get canvas() {
