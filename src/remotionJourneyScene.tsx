@@ -33,6 +33,7 @@ type ArrivalPayload = {
 };
 
 type SceneController = {
+  focusStop: (stopIndex: number) => void;
   getCurrentFrame: () => number;
   pause: () => void;
   play: () => void;
@@ -93,6 +94,7 @@ const SceneBridge = forwardRef<SceneController, SceneBridgeProps>(
 
     useImperativeHandle(ref, () => {
       return {
+        focusStop: () => undefined,
         getCurrentFrame: () => playerRef.current?.getCurrentFrame() ?? 0,
         pause: () => playerRef.current?.pause(),
         play: () => playerRef.current?.play(),
@@ -124,7 +126,6 @@ const SceneBridge = forwardRef<SceneController, SceneBridgeProps>(
             fps={COMPOSITION_FPS}
             inputProps={inputProps}
             loop={false}
-            moveToBeginningWhenEnded
             playbackRate={playbackRate}
             showVolumeControls={false}
             style={{height: COMPOSITION_HEIGHT, width: COMPOSITION_WIDTH}}
@@ -157,6 +158,7 @@ const getSegmentKm = (from: Stop, to: Stop) => {
 const toInputProps = (
   stops: Stop[],
   legModes: readonly TransportMode[],
+  showRouteOverlay: boolean,
 ): TravelMapJourneyProps => {
   return {
     legModes: [...legModes],
@@ -168,6 +170,7 @@ const toInputProps = (
       query: `${stop.city}, ${stop.country}`,
       title: stop.city,
     })),
+    showRouteOverlay,
   };
 };
 
@@ -215,6 +218,7 @@ export const createRemotionJourneyScene = async (
   stops: Stop[],
   legModes: readonly TransportMode[] = [],
   playbackRate = 1,
+  {showRouteOverlay = true}: {showRouteOverlay?: boolean} = {},
 ) => {
   const container = document.getElementById(containerId);
 
@@ -233,26 +237,40 @@ export const createRemotionJourneyScene = async (
 
   const root: Root = createRoot(mountNode);
   const sceneRef = React.createRef<SceneController>();
-  const normalizedLegModes = normalizeLegModes(legModes, stops.length);
-  const inputProps = toInputProps(stops, normalizedLegModes);
-  const stopCoordinates: JourneyStopCoordinate[] = stops.map((stop) => ({
+  let currentStops = stops;
+  let currentLegModes = normalizeLegModes(legModes, stops.length);
+  let currentShowRouteOverlay = showRouteOverlay;
+  let currentStopCoordinates: JourneyStopCoordinate[] = stops.map((stop) => ({
     lat: stop.lat,
     lon: stop.lon,
   }));
-  const durationInFrames = getJourneyDurationInFrames(
+  let currentJourneySegments = buildJourneySegments(
     stops.length,
-    normalizedLegModes,
-    stopCoordinates,
+    currentLegModes,
+    currentStopCoordinates,
+  );
+  let currentDurationInFrames = getJourneyDurationInFrames(
+    stops.length,
+    currentLegModes,
+    currentStopCoordinates,
   );
 
-  root.render(
-    <SceneBridge
-      ref={sceneRef}
-      durationInFrames={durationInFrames}
-      initialPlaybackRate={playbackRate}
-      inputProps={inputProps}
-    />,
-  );
+  const renderScene = () => {
+    root.render(
+      <SceneBridge
+        ref={sceneRef}
+        durationInFrames={currentDurationInFrames}
+        initialPlaybackRate={playbackRate}
+        inputProps={toInputProps(
+          currentStops,
+          currentLegModes,
+          currentShowRouteOverlay,
+        )}
+      />,
+    );
+  };
+
+  renderScene();
 
   let playResolve: (() => void) | null = null;
   let endTimeoutId: number | null = null;
@@ -261,6 +279,7 @@ export const createRemotionJourneyScene = async (
   let isPlaying = false;
   let latestArrivalHandler: ((payload: ArrivalPayload) => void) | undefined;
   let currentPlaybackRate = playbackRate;
+  let focusAnimationFrameId: number | null = null;
 
   const clearTimers = () => {
     if (endTimeoutId !== null) {
@@ -280,6 +299,54 @@ export const createRemotionJourneyScene = async (
     return Math.floor(sceneRef.current?.getCurrentFrame() ?? 0);
   };
 
+  const stopFocusAnimation = () => {
+    if (focusAnimationFrameId !== null) {
+      window.cancelAnimationFrame(focusAnimationFrameId);
+      focusAnimationFrameId = null;
+    }
+  };
+
+  const focusStop = (stopIndex: number) => {
+    if (!currentStops.length) {
+      return;
+    }
+
+    const clampedIndex = Math.max(0, Math.min(stopIndex, currentStops.length - 1));
+    const targetFrame =
+      clampedIndex === 0
+        ? 0
+        : Math.max(0, (currentJourneySegments[clampedIndex - 1]?.travelEnd ?? 0));
+
+    pause();
+    stopFocusAnimation();
+
+    const startFrame = getCurrentFrame();
+    if (Math.abs(targetFrame - startFrame) < 1) {
+      sceneRef.current?.seekTo(targetFrame);
+      return;
+    }
+
+    const startedAt = performance.now();
+    const durationMs = 720;
+    const easeOutCubic = (value: number) => 1 - (1 - value) ** 3;
+
+    const tick = (now: number) => {
+      const progress = Math.min(1, (now - startedAt) / durationMs);
+      const easedProgress = easeOutCubic(progress);
+      const nextFrame = startFrame + (targetFrame - startFrame) * easedProgress;
+      sceneRef.current?.seekTo(nextFrame);
+
+      if (progress >= 1) {
+        focusAnimationFrameId = null;
+        return;
+      }
+
+      focusAnimationFrameId = window.requestAnimationFrame(tick);
+    };
+
+    focusAnimationFrameId = window.requestAnimationFrame(tick);
+  };
+
   const getDelayFromFrame = (frame: number, fromFrame: number) => {
     const remainingFrames = Math.max(0, frame - fromFrame);
     return (remainingFrames / COMPOSITION_FPS / currentPlaybackRate) * 1000;
@@ -296,7 +363,7 @@ export const createRemotionJourneyScene = async (
   const scheduleTimeouts = (fromFrame: number) => {
     endTimeoutId = window.setTimeout(
       finishPlayback,
-      getDelayFromFrame(durationInFrames, fromFrame),
+      getDelayFromFrame(currentDurationInFrames, fromFrame),
     );
 
     for (const event of scheduledEvents) {
@@ -319,7 +386,7 @@ export const createRemotionJourneyScene = async (
   };
 
   const resetScheduledEvents = () => {
-    scheduledEvents = buildArrivalEvents(stops, normalizedLegModes).map((event) => ({
+    scheduledEvents = buildArrivalEvents(currentStops, currentLegModes).map((event) => ({
       callback: () => latestArrivalHandler?.(event.payload),
       frame: event.frame,
       fired: false,
@@ -355,6 +422,7 @@ export const createRemotionJourneyScene = async (
 
   return {
     destroy: () => {
+      stopFocusAnimation();
       clearTimers();
       root.unmount();
       mountNode.remove();
@@ -389,6 +457,39 @@ export const createRemotionJourneyScene = async (
       clearTimers();
       scheduleTimeouts(getCurrentFrame());
     },
+    update: (
+      nextStops: Stop[],
+      nextLegModes: readonly TransportMode[] = [],
+      options: {showRouteOverlay?: boolean} = {},
+    ) => {
+      stopFocusAnimation();
+      clearTimers();
+      isPaused = false;
+      isPlaying = false;
+      playResolve = null;
+      currentStops = nextStops;
+      currentLegModes = normalizeLegModes(nextLegModes, nextStops.length);
+      currentShowRouteOverlay =
+        typeof options.showRouteOverlay === "boolean"
+          ? options.showRouteOverlay
+          : currentShowRouteOverlay;
+      currentStopCoordinates = nextStops.map((stop) => ({
+        lat: stop.lat,
+        lon: stop.lon,
+      }));
+      currentJourneySegments = buildJourneySegments(
+        nextStops.length,
+        currentLegModes,
+        currentStopCoordinates,
+      );
+      currentDurationInFrames = getJourneyDurationInFrames(
+        nextStops.length,
+        currentLegModes,
+        currentStopCoordinates,
+      );
+      renderScene();
+    },
+    focusStop,
     setBasemap: () => "standard",
     viewer: {
       get canvas() {

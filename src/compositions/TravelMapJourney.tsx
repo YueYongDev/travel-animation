@@ -748,9 +748,18 @@ const getAnimationState = (
   };
 };
 
+const getSingleStopView = (stop: ResolvedStop): TravelState => {
+  return {
+    center: wrapCoordinate(stopToCoordinate(stop)),
+    pitch: 0,
+    zoom: 8.8,
+  };
+};
+
 export const TravelMapJourney = ({
   legModes,
   resolvedStops,
+  showRouteOverlay = true,
 }: TravelMapJourneyProps) => {
   const stops = resolvedStops ?? [];
   const normalizedLegModes = useMemo(() => {
@@ -765,6 +774,8 @@ export const TravelMapJourney = ({
   const ref = useRef<HTMLDivElement>(null);
   const hasConfiguredMap = Boolean(mapboxToken);
   const hasLoadedStyle = useRef(false);
+  const didContinueInitialRender = useRef(false);
+  const mapRef = useRef<Map | null>(null);
 
   const {delayRender, continueRender, cancelRender} = useDelayRender();
   const [handle] = useState(() => delayRender("Loading map..."));
@@ -791,24 +802,27 @@ export const TravelMapJourney = ({
       return;
     }
 
-    if (journeySegments.length === 0) {
+    if (mapRef.current || stops.length === 0) {
       continueRender(handle);
       return;
     }
 
-    const initialState = getAnimationState(0, journeySegments);
+    const initialView =
+      journeySegments.length > 0
+        ? getAnimationState(0, journeySegments)
+        : getSingleStopView(stops[0]);
 
     const mapInstance = new Map({
       attributionControl: false,
       bearing: 0,
-      center: wrapCoordinate(initialState.center),
+      center: wrapCoordinate(initialView.center),
       container: ref.current,
       fadeDuration: 0,
       interactive: false,
-      pitch: initialState.pitch,
+      pitch: initialView.pitch,
       preserveDrawingBuffer: true,
       style: "mapbox://styles/mapbox/standard",
-      zoom: initialState.zoom,
+      zoom: initialView.zoom,
     });
 
     mapInstance.on("style.load", () => {
@@ -837,7 +851,7 @@ export const TravelMapJourney = ({
 
       mapInstance.addSource("completed-routes", {
         type: "geojson",
-        data: buildCompletedRoutes(journeySegments, 0),
+        data: buildCompletedRoutes([], 0),
       });
 
       mapInstance.addLayer({
@@ -857,7 +871,7 @@ export const TravelMapJourney = ({
 
       mapInstance.addSource("active-route", {
         type: "geojson",
-        data: buildActiveRoute(journeySegments, 0, 0, "opening"),
+        data: buildActiveRoute([], 0, 0, "opening"),
       });
 
       mapInstance.addLayer({
@@ -876,7 +890,7 @@ export const TravelMapJourney = ({
 
       mapInstance.addSource("head-point", {
         type: "geojson",
-        data: buildHeadPoint(journeySegments, 0, 0, "opening"),
+        data: buildHeadPoint([], 0, 0, "opening"),
       });
 
       mapInstance.addLayer({
@@ -937,8 +951,12 @@ export const TravelMapJourney = ({
     });
 
     mapInstance.on("load", () => {
+      mapRef.current = mapInstance;
       setMap(mapInstance);
-      continueRender(handle);
+      if (!didContinueInitialRender.current) {
+        didContinueInitialRender.current = true;
+        continueRender(handle);
+      }
     });
 
     mapInstance.on("error", (event) => {
@@ -951,66 +969,87 @@ export const TravelMapJourney = ({
     continueRender,
     handle,
     hasConfiguredMap,
-    journeySegments,
-    markers,
+    stops.length,
   ]);
 
   useEffect(() => {
-    if (!map || !hasLoadedStyle.current || journeySegments.length === 0) {
+    return () => {
+      hasLoadedStyle.current = false;
+      mapRef.current?.remove();
+      mapRef.current = null;
+      setMap(null);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!map || !hasLoadedStyle.current || stops.length === 0) {
       return;
     }
 
     const animationHandle = delayRender("Animating map...");
-    const animationState = getAnimationState(frame, journeySegments);
+    const routeAnimationState =
+      journeySegments.length > 0 ? getAnimationState(frame, journeySegments) : null;
+    const cameraState = routeAnimationState ?? getSingleStopView(stops[0]);
 
     map.jumpTo({
       bearing: 0,
-      center: wrapCoordinate(animationState.center),
-      pitch: animationState.pitch,
-      zoom: animationState.zoom,
+      center: wrapCoordinate(cameraState.center),
+      pitch: cameraState.pitch,
+      zoom: cameraState.zoom,
     });
+
+    const stopsSource = map.getSource("stops") as
+      | mapboxgl.GeoJSONSource
+      | undefined;
+    stopsSource?.setData(markers);
 
     const completedRoutes = map.getSource("completed-routes") as
       | mapboxgl.GeoJSONSource
       | undefined;
     completedRoutes?.setData(
-      buildCompletedRoutes(journeySegments, animationState.currentSegment),
+      showRouteOverlay && routeAnimationState
+        ? buildCompletedRoutes(journeySegments, routeAnimationState.currentSegment)
+        : buildCompletedRoutes([], 0),
     );
 
     const activeRoute = map.getSource("active-route") as
       | mapboxgl.GeoJSONSource
       | undefined;
     activeRoute?.setData(
-      buildActiveRoute(
-        journeySegments,
-        animationState.currentSegment,
-        animationState.routeProgress,
-        animationState.phase,
-      ),
+      showRouteOverlay && routeAnimationState
+        ? buildActiveRoute(
+            journeySegments,
+            routeAnimationState.currentSegment,
+            routeAnimationState.routeProgress,
+            routeAnimationState.phase,
+          )
+        : buildActiveRoute([], 0, 0, "opening"),
     );
 
     const headPoint = map.getSource("head-point") as
       | mapboxgl.GeoJSONSource
       | undefined;
     headPoint?.setData(
-      buildHeadPoint(
-        journeySegments,
-        animationState.currentSegment,
-        animationState.routeProgress,
-        animationState.phase,
-      ),
+      showRouteOverlay && routeAnimationState
+        ? buildHeadPoint(
+            journeySegments,
+            routeAnimationState.currentSegment,
+            routeAnimationState.routeProgress,
+            routeAnimationState.phase,
+          )
+        : buildHeadPoint([], 0, 0, "opening"),
     );
 
     map.once("idle", () => {
       continueRender(animationHandle);
     });
-  }, [continueRender, delayRender, frame, journeySegments, map]);
+  }, [continueRender, delayRender, frame, journeySegments, map, markers, showRouteOverlay, stops]);
 
   if (!hasConfiguredMap) {
     return <MissingTokenMessage />;
   }
 
-  if (journeySegments.length === 0) {
+  if (stops.length === 0) {
     return (
       <AbsoluteFill
         style={{

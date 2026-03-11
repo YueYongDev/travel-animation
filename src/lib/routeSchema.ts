@@ -23,6 +23,7 @@ export type TravelMapJourneyInput = z.infer<typeof travelMapJourneySchema>;
 
 export type ResolvedStop = {
   country: string;
+  countryCode?: string;
   latitude: number;
   longitude: number;
   query: string;
@@ -37,4 +38,5 @@ export type TravelMapJourneyResolvedProps = TravelMapJourneyInput & {
 export type TravelMapJourneyProps = TravelMapJourneyInput & {
   legModes?: TransportMode[];
   resolvedStops?: ResolvedStop[];
+  showRouteOverlay?: boolean;
 };

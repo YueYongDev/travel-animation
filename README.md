@@ -38,6 +38,12 @@ cp .env.example .env
 
 把 `.env` 里的 `REMOTION_MAPBOX_TOKEN` 替换成你自己的 token。
 
+地点搜索默认也会优先复用 Mapbox token。你也可以单独提供一个前端搜索 token：
+
+- `VITE_MAPBOX_ACCESS_TOKEN`
+
+如果没有设置，前端会回退到 `REMOTION_MAPBOX_TOKEN`。
+
 ## Supabase Auth
 
 前端通过以下环境变量连接 Supabase：

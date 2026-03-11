@@ -26,6 +26,12 @@ export default defineConfig(({mode}) => {
       __AUTH_SITE_URL__: JSON.stringify(
         env.VITE_AUTH_SITE_URL || env.NEXT_PUBLIC_AUTH_SITE_URL || "",
       ),
+      __MAPBOX_ACCESS_TOKEN__: JSON.stringify(
+        env.VITE_MAPBOX_ACCESS_TOKEN ||
+          env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN ||
+          env.REMOTION_MAPBOX_TOKEN ||
+          "",
+      ),
       "process.env.REMOTION_MAPBOX_TOKEN": JSON.stringify(
         env.REMOTION_MAPBOX_TOKEN || "",
       ),

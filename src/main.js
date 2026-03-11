@@ -1,6 +1,12 @@
 import "./styles.css";
 import { createRemotionJourneyScene } from "./remotionJourneyScene";
 import {
+  createPlaceSearchSessionToken,
+  fetchPlaceSuggestions,
+  geocodePlace,
+  hasPlaceSearchProvider,
+} from "./lib/geocode";
+import {
   EXPORT_CREDIT_COST,
   assertSupabaseConfigured,
   buildAuthState,
@@ -32,7 +38,6 @@ const creditsBadge = document.getElementById("creditsBadge");
 const creditsValue = document.getElementById("creditsValue");
 const accountMenuTitle = document.getElementById("accountMenuTitle");
 const accountMenuSubtitle = document.getElementById("accountMenuSubtitle");
-const accountHomeBtn = document.getElementById("accountHomeBtn");
 const accountSignOutBtn = document.getElementById("accountSignOutBtn");
 const sidebarActions = document.getElementById("sidebarActions");
 const arrivalCard = document.getElementById("arrivalCard");
@@ -212,7 +217,7 @@ function updateRouteOverview() {
     return;
   }
 
-  const routeLabel = `${labels[0]} → ${labels.at(-1)}`.toUpperCase();
+  const routeLabel = labels.join(" → ").toUpperCase();
   if (previewRouteLabel) previewRouteLabel.textContent = routeLabel;
   updateLegDistanceLabels();
 }
@@ -221,16 +226,41 @@ function createTimelineRow(role, placeholder, state = {}) {
   const row = document.createElement("div");
   row.className = "timeline-row";
   row.dataset.role = role;
-
-  const pinClass = role === "start" ? "pin start-pin" : role === "end" ? "pin end-pin" : "pin";
   row.innerHTML = `
-    <span class="${pinClass}" aria-hidden="true"></span>
-    <div class="row-input-wrap">
-      <input type="text" placeholder="${placeholder}" />
+    <span class="row-order" aria-hidden="true"></span>
+    <div class="timeline-row-main">
+      <div class="row-display-shell">
+        <button type="button" class="row-display-card" aria-label="Edit stop">
+          <strong class="row-display-title"></strong>
+          <span class="row-display-meta"></span>
+        </button>
+        <div class="row-card-actions">
+          <button type="button" class="row-card-action" data-action="edit" aria-label="Re-enter stop">
+            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+          </button>
+          <button type="button" class="row-card-action danger" data-action="delete" aria-label="Delete stop">
+            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /></svg>
+          </button>
+        </div>
+      </div>
+      <div class="row-input-wrap">
+        <span class="row-search-icon" aria-hidden="true">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="7"></circle>
+            <path d="m20 20-3.5-3.5"></path>
+          </svg>
+        </span>
+        <input type="text" placeholder="${placeholder}" />
+        <div class="row-edit-actions">
+          <button type="button" class="row-edit-confirm" aria-label="Confirm stop">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+          </button>
+          <button type="button" class="row-edit-cancel" aria-label="Cancel editing">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+      </div>
     </div>
-    <button type="button" class="row-delete-btn" aria-label="Remove stop" title="Remove">
-      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-    </button>
   `;
 
   const input = row.querySelector('input[type="text"]');
@@ -239,11 +269,6 @@ function createTimelineRow(role, placeholder, state = {}) {
     input.dataset.resolvedQuery = state.resolvedQuery || input.value.trim();
     if (state.coord) input.dataset.coord = state.coord;
     if (state.country) input.dataset.country = state.country;
-  }
-
-  const deleteBtn = row.querySelector(".row-delete-btn");
-  if (deleteBtn) {
-    deleteBtn.addEventListener("click", () => removeDestinationRow(row));
   }
 
   return row;
@@ -279,9 +304,7 @@ function updateLegDistanceLabels() {
 
     if (!label) return;
 
-    const distanceReady = connector.dataset.distanceReady === "true";
-
-    if (!fromCoord || !toCoord || !distanceReady) {
+    if (!fromCoord || !toCoord) {
       label.hidden = true;
       label.textContent = "";
       connector.classList.remove("has-distance");
@@ -489,7 +512,14 @@ function parseCoord(text) {
 function getSearchState(input) {
   let state = inputSearchState.get(input);
   if (state) return state;
-  state = { timer: null, controller: null, suggestions: [], activeIndex: -1, hideTimer: null };
+  state = {
+    timer: null,
+    controller: null,
+    suggestions: [],
+    activeIndex: -1,
+    hideTimer: null,
+    sessionToken: null,
+  };
   inputSearchState.set(input, state);
   return state;
 }
@@ -498,27 +528,92 @@ function sanitizeCountry(value) {
   return value ? value.toUpperCase() : "-";
 }
 
+function countryCodeToFlagEmoji(countryCode) {
+  const normalized = typeof countryCode === "string" ? countryCode.trim().toUpperCase() : "";
+  if (!/^[A-Z]{2}$/.test(normalized)) return "🌍";
+
+  return String.fromCodePoint(
+    ...normalized.split("").map((char) => 127397 + char.charCodeAt(0)),
+  );
+}
+
+function formatCountryLabel(country, countryCode = "") {
+  const normalizedCountry = sanitizeCountry(country || "Awaiting confirmation");
+  return `${countryCodeToFlagEmoji(countryCode)} ${normalizedCountry}`;
+}
+
 function getCityFromQuery(query) {
   const head = query.split(",")[0]?.trim();
   return head || query;
 }
 
-function getGeocoderCity(result, query) {
-  const address = result.address || {};
-  return (
-    address.city ||
-    address.town ||
-    address.village ||
-    address.municipality ||
-    address.county ||
-    address.state ||
-    getCityFromQuery(query)
-  );
+function getRowRoleLabel(role, index) {
+  if (role === "start") return "Start";
+  if (role === "end") return "Destination";
+  return `Stop ${index + 1}`;
 }
 
-function getGeocoderCountry(result) {
-  const country = result.address?.country || result.display_name?.split(",").at(-1)?.trim() || "-";
-  return sanitizeCountry(country);
+function getRowInput(row) {
+  return row?.querySelector('input[type="text"]') || null;
+}
+
+function getResolvedRowValue(input) {
+  return input?.dataset.resolvedQuery?.trim() || input?.value.trim() || "";
+}
+
+function rowHasResolvedLocation(row) {
+  const input = getRowInput(row);
+  return Boolean(parseCoord(input?.dataset.coord || "") && getResolvedRowValue(input));
+}
+
+function setRowEditing(row, editing, { focus = false } = {}) {
+  if (!row) return;
+  row.dataset.editing = editing ? "true" : "false";
+  syncTimelineRowPresentation(row);
+  if (editing && focus) {
+    const input = getRowInput(row);
+    window.requestAnimationFrame(() => input?.focus());
+  }
+}
+
+function syncTimelineRowPresentation(row, index = getTimelineRows().indexOf(row)) {
+  const input = getRowInput(row);
+  if (!input) return;
+
+  const order = row.querySelector(".row-order");
+  const title = row.querySelector(".row-display-title");
+  const meta = row.querySelector(".row-display-meta");
+  const displayCard = row.querySelector(".row-display-card");
+  const deleteButton = row.querySelector('.row-card-action[data-action="delete"]');
+  const isResolved = rowHasResolvedLocation(row);
+  const isEditing = row.dataset.editing === "true" || !isResolved;
+  const rowValue = getResolvedRowValue(input);
+
+  if (order) order.textContent = String(index + 1);
+  if (title) title.textContent = getCityFromQuery(rowValue || input.placeholder || "New stop");
+  if (meta) {
+    meta.textContent = formatCountryLabel(
+      input.dataset.country || "Awaiting confirmation",
+      input.dataset.countryCode || "",
+    );
+  }
+  if (displayCard) {
+    displayCard.setAttribute(
+      "aria-label",
+      isResolved ? `Edit ${title?.textContent || "stop"}` : "Confirm stop",
+    );
+  }
+
+  row.classList.toggle("is-editing", isEditing);
+  row.classList.toggle("is-resolved", isResolved);
+  if (deleteButton instanceof HTMLButtonElement) {
+    deleteButton.disabled = getTimelineRows().length <= 2;
+  }
+}
+
+function syncRouteRowsUI() {
+  const rows = getTimelineRows();
+  rows.forEach((row, index) => syncTimelineRowPresentation(row, index));
 }
 
 async function geocodeAddress(query) {
@@ -526,52 +621,36 @@ async function geocodeAddress(query) {
   if (!normalized) return null;
   if (geocodeCache.has(normalized)) return geocodeCache.get(normalized);
 
-  const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=1&q=${encodeURIComponent(query)}`;
-  const response = await fetch(url);
-  if (!response.ok) throw new Error("地址服务暂时不可用，请稍后重试");
-
-  const payload = await response.json();
-  if (!Array.isArray(payload) || payload.length === 0) return null;
-
-  const first = payload[0];
-  const lon = Number(first.lon);
-  const lat = Number(first.lat);
-  if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
-
   const geocoded = {
-    lon,
-    lat,
-    city: getGeocoderCity(first, query),
-    country: getGeocoderCountry(first)
+    lon: 0,
+    lat: 0,
+    city: "",
+    country: "-",
+    countryCode: "",
   };
+  const resolved = await geocodePlace(query);
+  if (!resolved) return null;
+
+  geocoded.lon = resolved.longitude;
+  geocoded.lat = resolved.latitude;
+  geocoded.city = resolved.title || getCityFromQuery(query);
+  geocoded.country = sanitizeCountry(resolved.country);
+  geocoded.countryCode = resolved.countryCode || "";
   geocodeCache.set(normalized, geocoded);
   return geocoded;
 }
 
-function mapSuggestion(item, fallbackQuery = "") {
-  const lon = Number(item.lon);
-  const lat = Number(item.lat);
-  if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
-
-  const city = getGeocoderCity(item, fallbackQuery || item.display_name || "");
-  const country = getGeocoderCountry(item);
-  const label = [city, country === "-" ? "" : country].filter(Boolean).join(", ") || item.display_name || fallbackQuery;
-
-  return { label, city, country, lon, lat };
-}
-
-async function fetchAddressSuggestions(query, signal) {
+async function fetchAddressSuggestions(query, signal, sessionToken) {
   const normalized = query.trim().toLowerCase();
   if (!normalized) return [];
   if (suggestionCache.has(normalized)) return suggestionCache.get(normalized);
+  if (!hasPlaceSearchProvider()) return [];
 
-  const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=6&q=${encodeURIComponent(query)}`;
-  const response = await fetch(url, { signal });
-  if (!response.ok) return [];
-  const payload = await response.json();
-  if (!Array.isArray(payload)) return [];
-
-  const suggestions = payload.map((item) => mapSuggestion(item, query)).filter(Boolean);
+  const suggestions = await fetchPlaceSuggestions(query, {
+    signal,
+    sessionToken,
+    limit: 6,
+  });
   suggestionCache.set(normalized, suggestions);
   return suggestions;
 }
@@ -587,6 +666,26 @@ function getSuggestionContainer(input) {
   return list;
 }
 
+function positionAddressSuggestions(input, list) {
+  const wrap = input.closest(".row-input-wrap");
+  if (!wrap || !list) return;
+
+  const rect = wrap.getBoundingClientRect();
+  const estimatedHeight = Math.min(
+    Math.max(list.scrollHeight || 0, statefulSuggestionHeight(list)),
+    260,
+  );
+  const spaceBelow = window.innerHeight - rect.bottom;
+  const spaceAbove = rect.top;
+  const shouldOpenUpward = spaceBelow < estimatedHeight + 24 && spaceAbove > spaceBelow;
+
+  list.classList.toggle("open-upward", shouldOpenUpward);
+}
+
+function statefulSuggestionHeight(list) {
+  return list.children.length * 52;
+}
+
 function closeAddressSuggestions(input) {
   const state = getSearchState(input);
   state.activeIndex = -1;
@@ -598,14 +697,48 @@ function closeAddressSuggestions(input) {
   }
 }
 
-function applyAddressSuggestion(input, suggestion) {
+async function applyAddressSuggestion(input, suggestion) {
   input.value = suggestion.label;
-  input.dataset.coord = `${suggestion.lon},${suggestion.lat}`;
-  input.dataset.country = suggestion.country;
-  input.dataset.resolvedQuery = suggestion.label;
+  delete input.dataset.coord;
+  delete input.dataset.country;
+  delete input.dataset.countryCode;
+  delete input.dataset.resolvedQuery;
   closeAddressSuggestions(input);
   updateRouteOverview();
   updateLegDistanceLabels();
+  syncRouteRowsUI();
+
+  const row = input.closest(".timeline-row");
+  if (!row) return;
+  await confirmRowInput(row);
+}
+
+async function confirmRowInput(row) {
+  const input = getRowInput(row);
+  if (!input) return;
+
+  const resolvedStop = await resolveStopFromInput(input);
+  if (!resolvedStop) return;
+  setRowEditing(row, false);
+  syncRouteRowsUI();
+  await refreshPreviewSceneFromRows({ focusRow: row });
+}
+
+function cancelRowEditing(row) {
+  const input = getRowInput(row);
+  if (!input) return;
+
+  const resolvedQuery = input.dataset.resolvedQuery || "";
+  if (resolvedQuery) {
+    input.value = resolvedQuery;
+    setRowEditing(row, false);
+  } else {
+    input.value = "";
+    setRowEditing(row, true);
+  }
+
+  closeAddressSuggestions(input);
+  syncRouteRowsUI();
 }
 
 function renderAddressSuggestions(input) {
@@ -626,13 +759,19 @@ function renderAddressSuggestions(input) {
     button.className = "address-suggestion-item";
     if (index === state.activeIndex) button.classList.add("active");
     button.textContent = suggestion.label;
-    button.addEventListener("mousedown", (event) => {
+    button.addEventListener("mousedown", async (event) => {
       event.preventDefault();
-      applyAddressSuggestion(input, suggestion);
+      try {
+        await applyAddressSuggestion(input, suggestion);
+      } catch (error) {
+        // eslint-disable-next-line no-alert
+        alert(error.message || "无法确认该地点");
+      }
     });
     list.appendChild(button);
   });
   list.classList.add("show");
+  positionAddressSuggestions(input, list);
 }
 
 function moveSuggestionFocus(input, direction) {
@@ -653,16 +792,22 @@ function bindAddressSearch(input) {
   const requestSuggestions = async () => {
     const query = input.value.trim();
     if (query.length < 2) {
+      state.sessionToken = null;
       closeAddressSuggestions(input);
       return;
     }
 
     state.controller?.abort();
+    state.sessionToken ||= createPlaceSearchSessionToken();
     const controller = new AbortController();
     state.controller = controller;
 
     try {
-      const suggestions = await fetchAddressSuggestions(query, controller.signal);
+      const suggestions = await fetchAddressSuggestions(
+        query,
+        controller.signal,
+        state.sessionToken,
+      );
       if (controller.signal.aborted) return;
       state.suggestions = suggestions;
       state.activeIndex = -1;
@@ -676,6 +821,10 @@ function bindAddressSearch(input) {
     if (state.hideTimer) {
       clearTimeout(state.hideTimer);
       state.hideTimer = null;
+    }
+    if (input.value.trim().length >= 2) {
+      requestSuggestions();
+      return;
     }
     if (state.suggestions.length) renderAddressSuggestions(input);
   });
@@ -699,7 +848,11 @@ function bindAddressSearch(input) {
     }
     if (event.key === "Enter" && state.activeIndex >= 0) {
       event.preventDefault();
-      applyAddressSuggestion(input, state.suggestions[state.activeIndex]);
+      event.stopImmediatePropagation();
+      void applyAddressSuggestion(input, state.suggestions[state.activeIndex]).catch((error) => {
+        // eslint-disable-next-line no-alert
+        alert(error.message || "无法确认该地点");
+      });
       return;
     }
     if (event.key === "Escape") {
@@ -708,6 +861,7 @@ function bindAddressSearch(input) {
   });
 
   input.addEventListener("blur", () => {
+    state.sessionToken = null;
     state.hideTimer = setTimeout(() => closeAddressSuggestions(input), 120);
   });
 }
@@ -725,6 +879,7 @@ async function resolveStopFromInput(input) {
     return {
       city: getCityFromQuery(query),
       country: sanitizeCountry(input.dataset.country || "-"),
+      countryCode: input.dataset.countryCode || "",
       lon: cachedCoord.lon,
       lat: cachedCoord.lat
     };
@@ -735,6 +890,11 @@ async function resolveStopFromInput(input) {
 
   input.dataset.coord = `${geocoded.lon},${geocoded.lat}`;
   input.dataset.country = geocoded.country;
+  if (geocoded.countryCode) {
+    input.dataset.countryCode = geocoded.countryCode;
+  } else {
+    delete input.dataset.countryCode;
+  }
   input.dataset.resolvedQuery = query;
   updateLegDistanceLabels();
   return geocoded;
@@ -750,9 +910,57 @@ function bindRouteInput(input) {
     if (input.value.trim() === input.dataset.resolvedQuery) return;
     delete input.dataset.coord;
     delete input.dataset.country;
+    delete input.dataset.countryCode;
     updateRouteOverview();
     updateLegDistanceLabels();
     syncGenerateButtonState();
+    syncRouteRowsUI();
+  });
+
+  input.addEventListener("keydown", async (event) => {
+    if (event.key !== "Enter") return;
+    const row = input.closest(".timeline-row");
+    if (!row) return;
+    event.preventDefault();
+    try {
+      await confirmRowInput(row);
+    } catch (error) {
+      // eslint-disable-next-line no-alert
+      alert(error.message || "无法确认该地点");
+    }
+  });
+}
+
+function bindTimelineRowControls(row) {
+  const displayCard = row.querySelector(".row-display-card");
+  const confirmBtn = row.querySelector(".row-edit-confirm");
+  const cancelBtn = row.querySelector(".row-edit-cancel");
+  const editActionBtn = row.querySelector('.row-card-action[data-action="edit"]');
+  const deleteActionBtn = row.querySelector('.row-card-action[data-action="delete"]');
+
+  displayCard?.addEventListener("click", () => {
+    setRowEditing(row, true, { focus: true });
+  });
+
+  editActionBtn?.addEventListener("click", () => {
+    setRowEditing(row, true, { focus: true });
+  });
+
+  deleteActionBtn?.addEventListener("click", () => {
+    removeDestinationRow(row);
+  });
+
+  confirmBtn?.addEventListener("click", async () => {
+    try {
+      await confirmRowInput(row);
+    } catch (error) {
+      // eslint-disable-next-line no-alert
+      alert(error.message || "无法确认该地点");
+    }
+  });
+
+  cancelBtn?.addEventListener("click", () => {
+    cancelRowEditing(row);
   });
 }
 
@@ -824,7 +1032,9 @@ function readRowState(row) {
     value: input.value,
     coord: input.dataset.coord || "",
     country: input.dataset.country || "",
-    resolvedQuery: input.dataset.resolvedQuery || input.value.trim()
+    countryCode: input.dataset.countryCode || "",
+    resolvedQuery: input.dataset.resolvedQuery || input.value.trim(),
+    editing: row.dataset.editing || "false",
   };
 }
 
@@ -846,6 +1056,62 @@ function writeRowState(row, state) {
   } else {
     delete input.dataset.country;
   }
+
+  if (state.countryCode) {
+    input.dataset.countryCode = state.countryCode;
+  } else {
+    delete input.dataset.countryCode;
+  }
+
+  row.dataset.editing = state.editing || "false";
+}
+
+function readResolvedStopFromRow(row) {
+  const input = getRowInput(row);
+  if (!input) return null;
+
+  const coord = parseCoord(input.dataset.coord || "");
+  const query = getResolvedRowValue(input);
+  if (!coord || !query) return null;
+
+  return {
+    city: getCityFromQuery(query),
+    country: sanitizeCountry(input.dataset.country || "-"),
+    countryCode: input.dataset.countryCode || "",
+    lat: coord.lat,
+    lon: coord.lon,
+  };
+}
+
+function collectResolvedStopsFromRows() {
+  const stops = [];
+  const rowToStopIndex = new Map();
+
+  getTimelineRows().forEach((row) => {
+    const stop = readResolvedStopFromRow(row);
+    if (!stop) return;
+    rowToStopIndex.set(row, stops.length);
+    stops.push(stop);
+  });
+
+  return { rowToStopIndex, stops };
+}
+
+async function refreshPreviewSceneFromRows({ focusRow = null } = {}) {
+  const { stops, rowToStopIndex } = collectResolvedStopsFromRows();
+  if (!stops.length) return;
+
+  const legModes = collectLegModes(Math.max(0, stops.length - 1));
+  const nextScene = await initScene(stops, legModes, { showRouteOverlay: false });
+  const focusStopIndex = focusRow ? rowToStopIndex.get(focusRow) : null;
+  if (typeof focusStopIndex === "number") {
+    await new Promise((resolve) => {
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(resolve);
+      });
+    });
+    nextScene?.focusStop?.(focusStopIndex);
+  }
 }
 
 function reorderRowsByIndex(fromIndex, toIndex) {
@@ -861,6 +1127,8 @@ function reorderRowsByIndex(fromIndex, toIndex) {
   rows.forEach((row, index) => writeRowState(row, states[index]));
   updateRouteOverview();
   updateLegDistanceLabels();
+  syncRouteRowsUI();
+  void refreshPreviewSceneFromRows();
 }
 
 function clearDropHints() {
@@ -880,10 +1148,10 @@ function clearDragState() {
 function bindTimelineRowDrag(row) {
   row.draggable = true;
   row.classList.add("timeline-row-draggable");
-  const pin = row.querySelector(".pin");
-  if (!pin) return;
-  pin.classList.add("pin-draggable");
-  pin.setAttribute("title", "Drag to reorder");
+  const order = row.querySelector(".row-order");
+  if (!order) return;
+  order.classList.add("pin-draggable");
+  order.setAttribute("title", "Drag to reorder");
 }
 
 function initTimelineDragSort() {
@@ -955,7 +1223,6 @@ function createEndRow() {
 function createTimelineConnector() {
   const connector = document.createElement("div");
   connector.className = "timeline-connector";
-  connector.dataset.distanceReady = "false";
   connector.innerHTML = `
     <div class="connector-line" aria-hidden="true"></div>
     <button type="button" class="mode-toggle" data-mode="plane" aria-label="Transport mode: plane">
@@ -1040,26 +1307,23 @@ function removeDestinationRow(row) {
 
   row.remove();
 
-  // Re-assign roles: first row = start, last row = end, middle = waypoint
   const remainingRows = getTimelineRows();
   remainingRows.forEach((r, i) => {
-    const pin = r.querySelector(".pin");
     if (i === 0) {
       r.dataset.role = "start";
-      if (pin) { pin.classList.add("start-pin"); pin.classList.remove("end-pin"); }
     } else if (i === remainingRows.length - 1) {
       r.dataset.role = "end";
-      if (pin) { pin.classList.add("end-pin"); pin.classList.remove("start-pin"); }
     } else {
       r.dataset.role = "waypoint";
-      if (pin) { pin.classList.remove("start-pin", "end-pin"); }
     }
   });
 
   syncDeleteButtons();
   updateRouteOverview();
   updateLegDistanceLabels();
+  syncRouteRowsUI();
   syncGenerateButtonState();
+  void refreshPreviewSceneFromRows();
   requestAnimationFrame(updateSidebarOverflowState);
 }
 
@@ -1078,19 +1342,19 @@ function addDestinationRow() {
     bindTimelineRowDrag(newEndRow);
     if (input) {
       bindRouteInput(input);
-      input.focus();
+      bindTimelineRowControls(newEndRow);
+      setRowEditing(newEndRow, true, { focus: true });
     }
     syncDeleteButtons();
     updateRouteOverview();
     updateLegDistanceLabels();
+    syncRouteRowsUI();
     syncGenerateButtonState();
     requestAnimationFrame(updateSidebarOverflowState);
     return;
   }
 
   endRow.dataset.role = "waypoint";
-  const endPin = endRow.querySelector(".pin");
-  if (endPin) endPin.classList.remove("end-pin");
 
   const connector = createTimelineConnector();
   const newEndRow = createEndRow();
@@ -1103,27 +1367,39 @@ function addDestinationRow() {
   bindTimelineRowDrag(newEndRow);
   if (input) {
     bindRouteInput(input);
-    input.focus();
+    bindTimelineRowControls(newEndRow);
+    setRowEditing(newEndRow, true, { focus: true });
   }
   syncDeleteButtons();
   updateRouteOverview();
   updateLegDistanceLabels();
+  syncRouteRowsUI();
   syncGenerateButtonState();
   requestAnimationFrame(updateSidebarOverflowState);
 }
 
-async function initScene(stops, legModes) {
-  if (building) return;
+async function initScene(stops, legModes, { showRouteOverlay = true } = {}) {
+  if (building) return scene;
   building = true;
   syncGenerateButtonState();
-  if (scene) scene.destroy();
-  scene = await createRemotionJourneyScene("globeContainer", stops, legModes, playbackRate);
+  if (!scene) {
+    scene = await createRemotionJourneyScene(
+      "globeContainer",
+      stops,
+      legModes,
+      playbackRate,
+      { showRouteOverlay },
+    );
+  } else {
+    scene.update?.(stops, legModes, { showRouteOverlay });
+  }
 
   hideArrival();
   latestPlaybackBlob = null;
   latestPlaybackMimeType = "";
   building = false;
   syncGenerateButtonState();
+  return scene;
 }
 
 function updateBasemapButtonUI() {
@@ -1174,6 +1450,7 @@ async function run() {
       if (!stop) return;
       showArrival(stop, payload.km);
     });
+    hideArrival();
 
     if (recorder && recorder.state !== "inactive") {
       recorder.stop();
@@ -1324,10 +1601,6 @@ function bindWorkspaceEvents() {
   accountMenu?.addEventListener("click", (event) => {
     const target = event.target instanceof Element ? event.target : null;
     if (!target?.closest(".account-item")) return;
-    if (target.closest("#accountHomeBtn")) {
-      window.location.assign("../");
-      return;
-    }
     if (target.closest("#accountSignOutBtn")) {
       signOut()
         .catch((error) => {
@@ -1368,13 +1641,13 @@ function bindWorkspaceEvents() {
 
   document.querySelectorAll('#routeTimeline .timeline-row input[type="text"]').forEach(bindRouteInput);
   document.querySelectorAll('#routeTimeline .timeline-row').forEach((row) => {
-    const deleteBtn = row.querySelector('.row-delete-btn');
-    if (deleteBtn) deleteBtn.addEventListener('click', () => removeDestinationRow(row));
+    bindTimelineRowControls(row);
   });
   syncDeleteButtons();
   initTimelineDragSort();
   initSidebarOverflowState();
   syncAccountUI();
+  syncRouteRowsUI();
 
   window.addEventListener("beforeunload", () => {
     scene?.destroy();
@@ -1389,10 +1662,9 @@ function bindWorkspaceEvents() {
 
   initScene(
     [
-      { city: "NEW YORK", country: "UNITED STATES", lon: -74.006, lat: 40.7128 },
-      { city: "NEW YORK", country: "UNITED STATES", lon: -74.006, lat: 40.7128 }
+      { city: "北京", country: "中国", lon: 116.4074, lat: 39.9042 },
     ],
-    ["plane"]
+    []
   );
 }
 

@@ -15,15 +15,6 @@
 <body>
   <div id="app" class="app-shell">
     <header class="app-header">
-      <a class="home-link" href="../" aria-label="Back to home">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
-          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M3 10.5 12 3l9 7.5" />
-          <path d="M5 9.8V21h14V9.8" />
-        </svg>
-        <span class="home-link-label">Home</span>
-      </a>
-
       <a class="workspace-brand" href="../" aria-label="TrailFrame home">
         <span class="brand-mark" aria-hidden="true">
           <span class="brand-orb"></span>
@@ -41,16 +32,16 @@
       </a>
 
       <div class="header-actions">
-        <div id="creditsBadge" class="credits-badge" data-state="available" aria-live="polite">
+        <div id="creditsBadge" class="credits-badge" data-state="loading" aria-live="polite" aria-label="Loading credits">
           <span class="credits-badge-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true" fill="none" stroke="currentColor"
+            <svg width="24" height="24" viewBox="0 0 24 24" focusable="false" aria-hidden="true" fill="none" stroke="currentColor"
               stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z" />
             </svg>
           </span>
           <span class="credits-badge-copy">
             <span class="credits-badge-label">Credits</span>
-            <strong id="creditsValue">12 left</strong>
+            <strong id="creditsValue">Loading...</strong>
           </span>
         </div>
 
@@ -71,7 +62,6 @@
               <strong id="accountMenuTitle">TrailFrame Workspace</strong>
               <span id="accountMenuSubtitle">你的路线项目已准备就绪。</span>
             </div>
-            <button id="accountHomeBtn" type="button" class="account-item" role="menuitem">Back Home</button>
             <button id="accountSignOutBtn" type="button" class="account-item" role="menuitem">Sign out</button>
           </div>
         </div>
@@ -88,18 +78,58 @@
         <div class="planner-shell">
           <div id="routeTimeline">
             <div class="timeline-row" data-role="start">
-              <span class="pin start-pin" aria-hidden="true"></span>
-              <div class="row-input-wrap">
-                <input type="text" placeholder="Start" value="New York, USA" data-country="UNITED STATES"
-                  data-coord="-74.006,40.7128" />
+              <span class="row-order" aria-hidden="true">1</span>
+              <div class="timeline-row-main">
+                <div class="row-display-shell">
+                  <button type="button" class="row-display-card" aria-label="Edit stop">
+                    <strong class="row-display-title">北京</strong>
+                    <span class="row-display-meta">🇨🇳 中国</span>
+                  </button>
+                  <div class="row-card-actions">
+                    <button type="button" class="row-card-action" data-action="edit" aria-label="Re-enter stop">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 20h9" />
+                        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                      </svg>
+                    </button>
+                    <button type="button" class="row-card-action danger" data-action="delete" aria-label="Delete stop">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M3 6h18" />
+                        <path d="M8 6V4h8v2" />
+                        <path d="M19 6l-1 14H6L5 6" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="row-input-wrap">
+                  <span class="row-search-icon" aria-hidden="true">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                      stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <circle cx="11" cy="11" r="7"></circle>
+                      <path d="m20 20-3.5-3.5"></path>
+                    </svg>
+                  </span>
+                  <input type="text" placeholder="Search city or coordinates" value="北京"
+                    data-country="中国" data-country-code="CN" data-coord="116.4074,39.9042" />
+                  <div class="row-edit-actions">
+                    <button type="button" class="row-edit-confirm" aria-label="Confirm stop">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M20 6 9 17l-5-5" />
+                      </svg>
+                    </button>
+                    <button type="button" class="row-edit-cancel" aria-label="Cancel editing">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
               </div>
-              <button type="button" class="row-delete-btn" aria-label="Remove stop" title="Remove">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
-                  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-              </button>
             </div>
 
             <button id="addDestBtn" class="add-destination" type="button">
@@ -117,15 +147,15 @@
       <section class="map-section">
         <div class="preview-shell">
           <div class="preview-topbar">
-            <span id="previewRouteLabel" class="coordinate-pill">NEW YORK → KIZIMKAZI</span>
+            <span id="previewRouteLabel" class="coordinate-pill">北京</span>
           </div>
 
           <div class="preview-board">
             <div id="globeContainer" class="map-render" aria-label="Travel preview">
               <div id="arrivalCard" class="arrival-card">
                 <span class="arrival-chip">Arrived</span>
-                <p class="arrival-city" id="arrivalCity">NEW YORK</p>
-                <p class="arrival-country" id="arrivalCountry">UNITED STATES</p>
+                <p class="arrival-city" id="arrivalCity">北京</p>
+                <p class="arrival-country" id="arrivalCountry">中国</p>
                 <p class="arrival-km" id="arrivalKm">+12454 km</p>
               </div>
             </div>
