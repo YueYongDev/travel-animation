@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-locale="zh">
 
 <head>
   <meta charset="UTF-8" />
@@ -9,6 +9,8 @@
     name="description"
     content="TrailFrame 将你的旅行路线转化为电影级动画，支持多站点叙事、交通方式识别与一键导出。"
   />
+  <link rel="preload" href="/fonts/ZhuqueFangsong-Regular.ttf" as="font" type="font/ttf" crossorigin />
+  <link rel="stylesheet" href="/src/fontfaces.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
@@ -41,6 +43,19 @@
       </nav>
 
       <div class="header-actions">
+        <button id="localeToggle" class="locale-toggle" type="button" aria-label="切换到英文">
+          <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M3 12h18" />
+            <path d="M12 3a15 15 0 0 1 0 18" />
+            <path d="M12 3a15 15 0 0 0 0 18" />
+          </svg>
+          <span class="locale-toggle-options" aria-hidden="true">
+            <span class="locale-toggle-option" data-locale-option="zh">中</span>
+            <span class="locale-toggle-divider">/</span>
+            <span class="locale-toggle-option" data-locale-option="en">EN</span>
+          </span>
+        </button>
         <button class="header-auth-link" type="button" data-auth-open="login">登录</button>
         <a class="primary-link primary-link-start js-workspace-link" href="./workspace/" data-auth-start="true">
           <span class="cta-label">立即开始</span>

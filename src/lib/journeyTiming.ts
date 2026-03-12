@@ -84,7 +84,7 @@ export const TRANSPORT_PROFILES: Record<TransportMode, TransportProfile> = {
     midPitchWave: 2.6,
     midZoomWave: -0.22,
     sampleCount: 72,
-    travelFrames: 96,
+    travelFrames: 84,
     travelLead: 0.14,
     travelPitch: 6.5,
     travelStartZoomDelta: 0.72,

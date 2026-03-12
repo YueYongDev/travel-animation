@@ -18,6 +18,7 @@
   --radius-pill: 999px;
   --ease: 220ms cubic-bezier(0.22, 0.8, 0.24, 1);
   --font: "Manrope", "Segoe UI", sans-serif;
+  --font-display-zh: var(--font-cjk-display, "Songti SC", "STSong", "SimSun", serif);
   --accent: #f4cb11;
   --accent-strong: #f0c000;
 }
@@ -224,6 +225,53 @@ img {
   gap: 12px;
 }
 
+.locale-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 0 14px;
+  border: 1px solid rgba(18, 17, 16, 0.1);
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.56);
+  color: var(--ink);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    0 10px 24px rgba(18, 17, 16, 0.05);
+  transition:
+    transform var(--ease),
+    background var(--ease),
+    border-color var(--ease),
+    box-shadow var(--ease);
+}
+
+.locale-toggle:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(18, 17, 16, 0.16);
+}
+
+.locale-toggle-options {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.locale-toggle-option,
+.locale-toggle-divider {
+  color: var(--text-faint);
+  transition: color var(--ease);
+}
+
+html[data-locale="zh"] .locale-toggle-option[data-locale-option="zh"],
+html[data-locale="en"] .locale-toggle-option[data-locale-option="en"] {
+  color: var(--ink);
+}
+
 .header-auth-link {
   min-height: 46px;
   padding: 0 8px;
@@ -313,6 +361,14 @@ img {
   line-height: 1.06;
   letter-spacing: -0.05em;
   color: var(--ink);
+}
+
+html[data-locale="zh"] .hero-title,
+html[data-locale="zh"] .section-heading h2,
+html[data-locale="zh"] .workflow-header h2 {
+  font-family: var(--font-display-zh);
+  font-weight: 400;
+  letter-spacing: -0.035em;
 }
 
 .hero-title-line {
@@ -1528,8 +1584,11 @@ img {
 
   .header-actions {
     margin-left: auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
   }
 
+  .locale-toggle,
   .header-auth-link {
     min-height: 42px;
   }

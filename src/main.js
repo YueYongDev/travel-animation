@@ -1,3 +1,4 @@
+import "./fontfaces.css";
 import "./styles.css";
 import { createRemotionJourneyScene } from "./remotionJourneyScene";
 import {
@@ -29,6 +30,7 @@ const speedMenu = document.getElementById("speedMenu");
 const basemapBtn = document.getElementById("basemapBtn");
 const generateBtn = document.getElementById("generateBtn");
 const addDestBtn = document.getElementById("addDestBtn");
+const addDestHint = document.getElementById("addDestHint");
 const accountMenuRoot = document.getElementById("accountMenuRoot");
 const accountMenuButton = document.getElementById("accountMenuButton");
 const accountMenu = document.getElementById("accountMenu");
@@ -58,6 +60,7 @@ let sceneInitQueue = Promise.resolve();
 
 const MODES = ["plane", "train", "car", "ship", "bike", "walk"];
 const SPEED_OPTIONS = [1, 2, 4];
+const MAX_ROUTE_LOCATIONS = 15;
 const MODE_EMOJI = {
   plane: "✈️",
   train: "🚆",
@@ -814,6 +817,7 @@ function syncRouteRowsUI() {
   const rows = getTimelineRows();
   rows.forEach((row, index) => syncTimelineRowPresentation(row, index));
   syncSelectedTimelineRow();
+  syncAddDestinationButtonState();
 }
 
 async function geocodeAddress(query) {
@@ -1184,9 +1188,37 @@ function syncGenerateButtonState() {
   generateBtn.textContent = building ? "Generating..." : ready ? "Generate Route" : "Add one more stop";
 }
 
+function syncAddDestinationButtonState() {
+  if (!(addDestBtn instanceof HTMLButtonElement)) return;
+  const rows = getTimelineRows();
+  const rowCount = rows.length;
+  const hasPendingLocation = rows.some(
+    (row) => row.dataset.editing === "true" || !rowHasResolvedLocation(row),
+  );
+  const canAddMore = rowCount < MAX_ROUTE_LOCATIONS && !hasPendingLocation;
+  let hintText = "";
+
+  if (hasPendingLocation) {
+    hintText = "请先确认当前地点，再添加新的地点";
+  } else if (rowCount >= MAX_ROUTE_LOCATIONS) {
+    hintText = `最多添加 ${MAX_ROUTE_LOCATIONS} 个地点`;
+  }
+
+  addDestBtn.disabled = !canAddMore;
+  addDestBtn.title = hintText;
+  if (addDestHint) {
+    addDestHint.textContent = hintText;
+    addDestHint.hidden = !hintText;
+  }
+}
+
 async function collectStops() {
   const rows = Array.from(routeTimeline?.querySelectorAll(".timeline-row") || []);
   const stops = [];
+
+  if (rows.length > MAX_ROUTE_LOCATIONS) {
+    throw new Error(`最多只能添加 ${MAX_ROUTE_LOCATIONS} 个地点`);
+  }
 
   for (const row of rows) {
     const input = row.querySelector('input[type="text"]');
@@ -1602,12 +1634,29 @@ function removeDestinationRow(row) {
   updateLegDistanceLabels();
   syncRouteRowsUI();
   syncGenerateButtonState();
+  syncAddDestinationButtonState();
   void refreshPreviewSceneFromRows();
   requestAnimationFrame(updateSidebarOverflowState);
 }
 
 function addDestinationRow() {
   if (!routeTimeline) return;
+  const rows = getTimelineRows();
+  const hasPendingLocation = rows.some(
+    (row) => row.dataset.editing === "true" || !rowHasResolvedLocation(row),
+  );
+  if (hasPendingLocation) {
+    // eslint-disable-next-line no-alert
+    alert("请先确认当前地点，再添加新的地点");
+    syncAddDestinationButtonState();
+    return;
+  }
+  if (rows.length >= MAX_ROUTE_LOCATIONS) {
+    // eslint-disable-next-line no-alert
+    alert(`最多只能添加 ${MAX_ROUTE_LOCATIONS} 个地点`);
+    syncAddDestinationButtonState();
+    return;
+  }
   const endRow = routeTimeline.querySelector('.timeline-row[data-role="end"]');
   if (!endRow) {
     const connector = createTimelineConnector();
@@ -1629,6 +1678,7 @@ function addDestinationRow() {
     updateLegDistanceLabels();
     syncRouteRowsUI();
     syncGenerateButtonState();
+    syncAddDestinationButtonState();
     requestAnimationFrame(updateSidebarOverflowState);
     return;
   }
@@ -1654,6 +1704,7 @@ function addDestinationRow() {
   updateLegDistanceLabels();
   syncRouteRowsUI();
   syncGenerateButtonState();
+  syncAddDestinationButtonState();
   requestAnimationFrame(updateSidebarOverflowState);
 }
 
@@ -1984,6 +2035,7 @@ function bindWorkspaceEvents() {
   updateSpeedControlUI();
   updateRouteOverview();
   syncGenerateButtonState();
+  syncAddDestinationButtonState();
   syncExportButtonState();
 
   initScene(

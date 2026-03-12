@@ -1,0 +1,19 @@
+@font-face {
+  font-family: "Zhuque Fangsong";
+  src: url("/fonts/ZhuqueFangsong-Regular.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+:root {
+  --font-cjk-display:
+    "Zhuque Fangsong",
+    "朱雀仿宋",
+    "Source Han Serif SC",
+    "Noto Serif CJK SC",
+    "Songti SC",
+    "STSong",
+    "SimSun",
+    serif;
+}

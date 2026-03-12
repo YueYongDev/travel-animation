@@ -1,6 +1,26 @@
 const COPY_RESET_MS = 1600;
 const copyTimers = new WeakMap();
 
+function getCurrentLocale() {
+  return document.documentElement.dataset.locale === "en" ? "en" : "zh";
+}
+
+function getCopyLabels(locale = getCurrentLocale()) {
+  if (locale === "en") {
+    return {
+      error: "Retry",
+      idle: "Copy",
+      success: "Copied",
+    };
+  }
+
+  return {
+    error: "重试",
+    idle: "复制",
+    success: "已复制",
+  };
+}
+
 function fallbackCopyText(text) {
   const textarea = document.createElement("textarea");
   textarea.value = text;
@@ -42,15 +62,17 @@ function bindCopyButton(button) {
   const reset = () => {
     const timer = copyTimers.get(button);
     if (timer) window.clearTimeout(timer);
-    setCopyState(button, "复制", "idle");
+    setCopyState(button, getCopyLabels().idle, "idle");
   };
 
   button.addEventListener("click", async () => {
+    const labels = getCopyLabels();
+
     try {
       await copyText(copyValue);
-      setCopyState(button, "已复制", "success");
+      setCopyState(button, labels.success, "success");
     } catch {
-      setCopyState(button, "重试", "error");
+      setCopyState(button, labels.error, "error");
     }
 
     const previousTimer = copyTimers.get(button);
@@ -58,6 +80,22 @@ function bindCopyButton(button) {
 
     const nextTimer = window.setTimeout(reset, COPY_RESET_MS);
     copyTimers.set(button, nextTimer);
+  });
+}
+
+export function setFooterLocale(locale) {
+  const labels = getCopyLabels(locale);
+
+  document.querySelectorAll(".footer-contact-card[data-copy-text]").forEach((button) => {
+    if (!(button instanceof HTMLButtonElement)) return;
+
+    const state = button.dataset.copyState === "success"
+      ? "success"
+      : button.dataset.copyState === "error"
+        ? "error"
+        : "idle";
+
+    setCopyState(button, labels[state], state);
   });
 }
 
@@ -70,4 +108,6 @@ export function initSiteFooter() {
     if (!(button instanceof HTMLButtonElement)) return;
     bindCopyButton(button);
   });
+
+  setFooterLocale(getCurrentLocale());
 }

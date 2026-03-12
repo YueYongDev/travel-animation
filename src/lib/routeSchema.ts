@@ -17,7 +17,7 @@ export const travelMapJourneySchema = z.object({
   places: z
     .array(z.string().trim().min(1, "Place is required"))
     .min(2, "Add at least two places")
-    .max(8, "A maximum of eight places is supported"),
+    .max(15, "A maximum of fifteen places is supported"),
 });
 
 export type TravelMapJourneyInput = z.infer<typeof travelMapJourneySchema>;

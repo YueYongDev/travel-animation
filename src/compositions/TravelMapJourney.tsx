@@ -84,6 +84,29 @@ type AttachedTrailOverlay = {
   visible: boolean;
 };
 
+type OverlaySyncInput = {
+  attachedTrail: AttachedTrailOverlay | null;
+  attachedTrailPathNode: SVGPathElement | null;
+  mapInstance: Map;
+  stopLabelNodes: Array<HTMLDivElement | null>;
+  stops: ResolvedStop[];
+  vehicleCoordinate: { coordinate: Coordinate; rotation: number } | null;
+  vehicleNode: HTMLDivElement | null;
+};
+
+const STOP_LABEL_FONT_STACK = [
+  "\"Zhuque Fangsong\"",
+  "\"朱雀仿宋\"",
+  "\"Source Han Serif SC\"",
+  "\"Noto Serif CJK SC\"",
+  "\"Songti SC\"",
+  "\"STSong\"",
+  "\"SimSun\"",
+  "sans-serif",
+].join(", ");
+const STOP_LABEL_MAX_WIDTH = 360;
+const STOP_LABEL_Y_OFFSET_PX = 18;
+
 const HIDE_FEATURES = [
   "showRoadsAndTransit",
   "showRoads",
@@ -843,6 +866,80 @@ const buildMarkers = (stops: ResolvedStop[]) => {
   };
 };
 
+const getStopLabelText = (stop: ResolvedStop) => {
+  const rawTitle = (stop.title || stop.query || "").trim();
+  if (!rawTitle) {
+    return stop.country || "";
+  }
+
+  const removablePrefixes = [stop.country, "中华人民共和国"]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value));
+
+  for (const prefix of removablePrefixes) {
+    if (rawTitle.startsWith(prefix) && rawTitle.length > prefix.length + 1) {
+      return rawTitle.slice(prefix.length).trim();
+    }
+  }
+
+  return rawTitle;
+};
+
+const syncProjectedOverlays = ({
+  attachedTrail,
+  attachedTrailPathNode,
+  mapInstance,
+  stopLabelNodes,
+  stops,
+  vehicleCoordinate,
+  vehicleNode,
+}: OverlaySyncInput) => {
+  for (let index = 0; index < stops.length; index += 1) {
+    const labelNode = stopLabelNodes[index];
+    const stop = stops[index];
+    if (!labelNode || !stop) {
+      continue;
+    }
+
+    const pos = mapInstance.project(wrapCoordinate(stopToCoordinate(stop)));
+    labelNode.style.transform =
+      `translate(${pos.x}px, ${pos.y}px) translate(-50%, ${STOP_LABEL_Y_OFFSET_PX}px)`;
+    labelNode.style.opacity = "1";
+  }
+
+  if (vehicleCoordinate && vehicleNode) {
+    const pos = mapInstance.project(wrapCoordinate(vehicleCoordinate.coordinate));
+    vehicleNode.style.transform =
+      `translate(${pos.x}px, ${pos.y}px) translate(-50%, -50%) rotate(${vehicleCoordinate.rotation}deg)`;
+  }
+
+  if (!attachedTrailPathNode) {
+    return;
+  }
+
+  if (!attachedTrail?.visible || attachedTrail.coordinates.length < 2) {
+    attachedTrailPathNode.setAttribute("d", "");
+    attachedTrailPathNode.style.opacity = "0";
+    return;
+  }
+
+  const projectedPoints = attachedTrail.coordinates.map((coordinate) => {
+    const point = mapInstance.project(wrapCoordinate(coordinate));
+    return { x: point.x, y: point.y };
+  });
+  const headPoint = mapInstance.project(wrapCoordinate(attachedTrail.headCoordinate));
+  const trailPoints = [
+    ...projectedPoints.slice(0, -1),
+    getPlaneTrailTailPoint(
+      { x: headPoint.x, y: headPoint.y },
+      attachedTrail.rotation,
+    ),
+  ];
+
+  attachedTrailPathNode.setAttribute("d", buildSvgPathData(trailPoints));
+  attachedTrailPathNode.style.opacity = "1";
+};
+
 const buildCompletedRoutes = (
   segments: JourneySegment[],
   currentSegment: number,
@@ -1461,6 +1558,7 @@ export const TravelMapJourney = ({
   const motionDebugLastFrameRef = useRef<number>(-1);
   const attachedTrailGeoRef = useRef<AttachedTrailOverlay | null>(null);
   const attachedTrailPathRef = useRef<SVGPathElement>(null);
+  const stopLabelRefs = useRef<Array<HTMLDivElement | null>>([]);
   const vehicleDivRef = useRef<HTMLDivElement>(null);
   const vehicleGeoRef = useRef<{ coordinate: Coordinate; rotation: number } | null>(null);
   const [vehicleOverlay, setVehicleOverlay] = useState<{ mode: TransportMode; visible: boolean }>({
@@ -1772,64 +1870,26 @@ export const TravelMapJourney = ({
         },
       });
 
-      mapInstance.addLayer({
-        id: "stop-labels",
-        type: "symbol",
-        source: "stops",
-        layout: {
-          "text-anchor": "top",
-          "text-field": ["get", "title"],
-          "text-font": ["DIN Pro Bold", "Arial Unicode MS Bold"],
-          "text-offset": [0, 0.58],
-          "text-size": 21,
-        },
-        paint: {
-          "text-color": "#fff7ed",
-          "text-halo-color": "rgba(6, 11, 20, 0.9)",
-          "text-halo-width": 1.6,
-        },
-      });
     });
 
     mapInstance.on("load", () => {
       mapRef.current = mapInstance;
 
       const updateMovingOverlays = () => {
-        if (vehicleGeoRef.current && vehicleDivRef.current) {
-          const pos = mapInstance.project(wrapCoordinate(vehicleGeoRef.current.coordinate));
-          vehicleDivRef.current.style.transform =
-            `translate(${pos.x}px, ${pos.y}px) translate(-50%, -50%) rotate(${vehicleGeoRef.current.rotation}deg)`;
-        }
-
-        if (!attachedTrailPathRef.current) {
-          return;
-        }
-
-        const attachedTrail = attachedTrailGeoRef.current;
-        if (!attachedTrail?.visible || attachedTrail.coordinates.length < 2) {
-          attachedTrailPathRef.current.setAttribute("d", "");
-          attachedTrailPathRef.current.style.opacity = "0";
-          return;
-        }
-
-        const projectedPoints = attachedTrail.coordinates.map((coordinate) => {
-          const point = mapInstance.project(wrapCoordinate(coordinate));
-          return { x: point.x, y: point.y };
+        syncProjectedOverlays({
+          attachedTrail: attachedTrailGeoRef.current,
+          attachedTrailPathNode: attachedTrailPathRef.current,
+          mapInstance,
+          stopLabelNodes: stopLabelRefs.current,
+          stops,
+          vehicleCoordinate: vehicleGeoRef.current,
+          vehicleNode: vehicleDivRef.current,
         });
-        const headPoint = mapInstance.project(wrapCoordinate(attachedTrail.headCoordinate));
-        const trailPoints = [
-          ...projectedPoints.slice(0, -1),
-          getPlaneTrailTailPoint(
-            { x: headPoint.x, y: headPoint.y },
-            attachedTrail.rotation,
-          ),
-        ];
-
-        attachedTrailPathRef.current.setAttribute("d", buildSvgPathData(trailPoints));
-        attachedTrailPathRef.current.style.opacity = "1";
       };
 
+      mapInstance.on("move", updateMovingOverlays);
       mapInstance.on("render", updateMovingOverlays);
+      mapInstance.on("moveend", updateMovingOverlays);
       setMap(mapInstance);
 
       if (!showRouteOverlay && typeof flyToStopIndex === "number" && stops[flyToStopIndex]) {
@@ -2029,8 +2089,29 @@ export const TravelMapJourney = ({
       setVehicleOverlay((prev) => prev.visible ? { ...prev, visible: false } : prev);
     }
 
+    syncProjectedOverlays({
+      attachedTrail: attachedTrailGeoRef.current,
+      attachedTrailPathNode: attachedTrailPathRef.current,
+      mapInstance: map,
+      stopLabelNodes: stopLabelRefs.current,
+      stops,
+      vehicleCoordinate: vehicleGeoRef.current,
+      vehicleNode: vehicleDivRef.current,
+    });
+
     if (!shouldSyncFrame) {
       map.triggerRepaint();
+      window.requestAnimationFrame(() => {
+        syncProjectedOverlays({
+          attachedTrail: attachedTrailGeoRef.current,
+          attachedTrailPathNode: attachedTrailPathRef.current,
+          mapInstance: map,
+          stopLabelNodes: stopLabelRefs.current,
+          stops,
+          vehicleCoordinate: vehicleGeoRef.current,
+          vehicleNode: vehicleDivRef.current,
+        });
+      });
       fallbackTimeoutId = window.setTimeout(finalizeFrame, 32);
 
       return () => {
@@ -2042,6 +2123,17 @@ export const TravelMapJourney = ({
 
     map.on("render", handleFrameRender);
     map.triggerRepaint();
+    window.requestAnimationFrame(() => {
+      syncProjectedOverlays({
+        attachedTrail: attachedTrailGeoRef.current,
+        attachedTrailPathNode: attachedTrailPathRef.current,
+        mapInstance: map,
+        stopLabelNodes: stopLabelRefs.current,
+        stops,
+        vehicleCoordinate: vehicleGeoRef.current,
+        vehicleNode: vehicleDivRef.current,
+      });
+    });
     maybeFinalizeSyncedFrame();
 
     fallbackTimeoutId = window.setTimeout(finalizeFrame, shouldWaitForTiles ? 1200 : 180);
@@ -2118,6 +2210,9 @@ export const TravelMapJourney = ({
   }
 
   const vehicleSpriteUrl = useMemo(() => getVehicleSpriteUrl(vehicleOverlay.mode), [vehicleOverlay.mode]);
+  const stopLabelTexts = useMemo(() => {
+    return stops.map((stop) => getStopLabelText(stop));
+  }, [stops]);
   const vehicleRenderPx = TRANSPORT_SPRITE_SIZE * (HEAD_BADGE_RENDER_SIZE[vehicleOverlay.mode] ?? 1) * 0.5;
   const vehicleImageFilter = vehicleOverlay.mode === "car" || vehicleOverlay.mode === "train"
     ? "drop-shadow(0 6px 10px rgba(15, 23, 42, 0.18))"
@@ -2162,6 +2257,56 @@ export const TravelMapJourney = ({
             }}
           />
         </svg>
+        <div
+          aria-hidden
+          style={{
+            inset: 0,
+            overflow: "visible",
+            pointerEvents: "none",
+            position: "absolute",
+            zIndex: 8,
+          }}
+        >
+          {stops.map((stop, index) => (
+            <div
+              key={`${stop.longitude}-${stop.latitude}-${stopLabelTexts[index] ?? index}`}
+              ref={(node) => {
+                stopLabelRefs.current[index] = node;
+              }}
+              style={{
+                color: "#18202b",
+                filter: "drop-shadow(0 2px 4px rgba(248, 244, 236, 0.28))",
+                fontFamily: STOP_LABEL_FONT_STACK,
+                fontSize: 19,
+                fontWeight: 400,
+                left: 0,
+                letterSpacing: "0.01em",
+                lineHeight: 1.12,
+                maxWidth: STOP_LABEL_MAX_WIDTH,
+                opacity: 0,
+                position: "absolute",
+                textAlign: "center",
+                textWrap: "balance",
+                textShadow: "0 1px 0 rgba(248, 244, 236, 0.96), 0 -1px 0 rgba(248, 244, 236, 0.96), 1px 0 0 rgba(248, 244, 236, 0.96), -1px 0 0 rgba(248, 244, 236, 0.96), 1px 1px 0 rgba(248, 244, 236, 0.84), -1px 1px 0 rgba(248, 244, 236, 0.84), 1px -1px 0 rgba(248, 244, 236, 0.84), -1px -1px 0 rgba(248, 244, 236, 0.84), 0 4px 10px rgba(12, 18, 28, 0.08)",
+                top: 0,
+                transform: "translate(-9999px, -9999px)",
+                transformOrigin: "top center",
+                whiteSpace: "normal",
+                width: "max-content",
+                wordBreak: "keep-all",
+                zIndex: 8,
+              }}
+            >
+              <span
+                style={{
+                  position: "relative",
+                }}
+              >
+                {stopLabelTexts[index]}
+              </span>
+            </div>
+          ))}
+        </div>
         {vehicleOverlay.visible && vehicleSpriteUrl && (
           <div
             ref={vehicleDivRef}
