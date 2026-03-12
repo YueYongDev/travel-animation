@@ -471,11 +471,10 @@ export const createRemotionJourneyScene = async (
     },
     pause,
     play: async (onArrival?: (payload: ArrivalPayload) => void) => {
-      if (!currentSyncMapFrames) {
-        currentSyncMapFrames = true;
+      if (currentSyncMapFrames) {
+        currentSyncMapFrames = false;
         renderScene();
       }
-      await waitForFrameSettled(0);
       clearTimers();
       latestArrivalHandler = onArrival;
       resetScheduledEvents();

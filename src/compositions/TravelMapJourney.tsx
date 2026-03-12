@@ -891,6 +891,21 @@ const getTravelStartProgress = (
   return TRANSPORT_MOTION_STYLES[segment.mode].focusLeadProgress;
 };
 
+const getFocusProgressLimits = (
+  segment: JourneySegment,
+  segmentIndex: number,
+) => {
+  const focusLeadProgress = getTravelStartProgress(segment, segmentIndex);
+  const focusStartProgress =
+    segmentIndex === 0 ? 0 : Math.min(focusLeadProgress * 0.22, focusLeadProgress);
+  const focusEndProgress =
+    segmentIndex === 0
+      ? focusLeadProgress
+      : Math.min(Math.max(focusLeadProgress, focusStartProgress + 0.06), 0.24);
+
+  return { focusStartProgress, focusEndProgress };
+};
+
 const getTravelProgress = (
   frame: number,
   segment: JourneySegment,
@@ -898,12 +913,12 @@ const getTravelProgress = (
   _segmentCount: number,
 ) => {
   const lastTravelFrame = Math.max(segment.travelStart, segment.travelEnd - 1);
-  const startProgress = getTravelStartProgress(segment, segmentIndex);
+  const { focusEndProgress } = getFocusProgressLimits(segment, segmentIndex);
 
   return interpolate(
     frame,
     [segment.travelStart, lastTravelFrame],
-    [startProgress, 1],
+    [focusEndProgress, 1],
     {
       easing: getTravelEasing(segment),
       extrapolateLeft: "clamp",
@@ -1084,13 +1099,7 @@ const getAnimationState = (
         extrapolateLeft: "clamp",
         extrapolateRight: "clamp",
       });
-      const focusLeadProgress = getTravelStartProgress(segment, index);
-      const focusStartProgress =
-        index === 0 ? 0 : Math.min(focusLeadProgress * 0.22, focusLeadProgress);
-      const focusEndProgress =
-        index === 0
-          ? focusLeadProgress
-          : Math.min(Math.max(focusLeadProgress, focusStartProgress + 0.06), 0.24);
+      const { focusStartProgress, focusEndProgress } = getFocusProgressLimits(segment, index);
       const focusTravelStartState = getTravelState(
         segment,
         index,
@@ -1117,10 +1126,7 @@ const getAnimationState = (
           index === 0
             ? lerp(focusStartPitch, focusTravelEndState.pitch, phase)
             : lerp(focusTravelStartState.pitch, focusTravelEndState.pitch, phase),
-        routeProgress:
-          index === 0
-            ? lerp(0, focusLeadProgress, phase)
-            : lerp(focusStartProgress, focusEndProgress, phase),
+        routeProgress: lerp(focusStartProgress, focusEndProgress, phase),
         zoom:
           index === 0
             ? lerp(focusStartZoom, focusTravelEndState.zoom, phase)
@@ -1344,12 +1350,11 @@ export const TravelMapJourney = ({
   const motionDebugRowsRef = useRef<Array<Record<string, number | string>>>([]);
   const motionDebugLastCenterRef = useRef<Coordinate | null>(null);
   const motionDebugLastFrameRef = useRef<number>(-1);
-  const [vehicleOverlay, setVehicleOverlay] = useState<VehicleOverlayState>({
+  const vehicleDivRef = useRef<HTMLDivElement>(null);
+  const vehicleGeoRef = useRef<{ coordinate: Coordinate; rotation: number } | null>(null);
+  const [vehicleOverlay, setVehicleOverlay] = useState<{ mode: TransportMode; visible: boolean }>({
     mode: "plane",
-    rotation: 0,
     visible: false,
-    x: 0,
-    y: 0,
   });
 
   const { delayRender, continueRender, cancelRender } = useDelayRender();
@@ -1677,6 +1682,14 @@ export const TravelMapJourney = ({
 
     mapInstance.on("load", () => {
       mapRef.current = mapInstance;
+
+      const updateVehiclePosition = () => {
+        if (!vehicleGeoRef.current || !vehicleDivRef.current) return;
+        const pos = mapInstance.project(vehicleGeoRef.current.coordinate);
+        vehicleDivRef.current.style.transform = `translate(${pos.x}px, ${pos.y}px) translate(-50%, -50%) rotate(${vehicleGeoRef.current.rotation}deg)`;
+      };
+
+      mapInstance.on("render", updateVehiclePosition);
       setMap(mapInstance);
 
       if (!showRouteOverlay && typeof flyToStopIndex === "number" && stops[flyToStopIndex]) {
@@ -1798,7 +1811,7 @@ export const TravelMapJourney = ({
         : buildActiveRoute([], 0, 0, "opening"),
     );
 
-    // Position vehicle overlay using map.project() for frame-exact sync.
+    // Position vehicle overlay data, render loop will project screen pos
     if (showRouteOverlay && routeAnimationState) {
       const headGeo = buildHeadPoint(
         journeySegments,
@@ -1809,17 +1822,23 @@ export const TravelMapJourney = ({
       const headFeature = headGeo.features[0];
       if (headFeature) {
         const coords = headFeature.geometry.coordinates as Coordinate;
-        const screenPos = map.project(coords);
         const segment = journeySegments[routeAnimationState.currentSegment];
-        setVehicleOverlay({
-          mode: segment?.mode ?? "plane",
+        vehicleGeoRef.current = {
+          coordinate: coords,
           rotation: (headFeature.properties.rotation as number) ?? 0,
-          visible: true,
-          x: screenPos.x,
-          y: screenPos.y,
+        };
+        setVehicleOverlay((prev) => {
+          if (prev.mode !== segment?.mode || !prev.visible) {
+             return { mode: segment?.mode ?? "plane", visible: true };
+          }
+          return prev;
         });
+      } else {
+        vehicleGeoRef.current = null;
+        setVehicleOverlay((prev) => prev.visible ? { ...prev, visible: false } : prev);
       }
     } else {
+      vehicleGeoRef.current = null;
       setVehicleOverlay((prev) => prev.visible ? { ...prev, visible: false } : prev);
     }
 
@@ -1935,32 +1954,34 @@ export const TravelMapJourney = ({
         }}
       >
         <div ref={ref} style={mapStyle} />
-      </div>
-      {vehicleOverlay.visible && vehicleSpriteUrl && (
-        <div
-          style={{
-            height: vehicleRenderPx,
-            left: vehicleOverlay.x - vehicleRenderPx / 2,
-            opacity: 0.98,
-            pointerEvents: "none",
-            position: "absolute",
-            top: vehicleOverlay.y - vehicleRenderPx / 2,
-            transform: `rotate(${vehicleOverlay.rotation}deg)`,
-            transformOrigin: "center center",
-            width: vehicleRenderPx,
-          }}
-        >
-          <img
-            src={vehicleSpriteUrl}
-            alt=""
+        {vehicleOverlay.visible && vehicleSpriteUrl && (
+          <div
+            ref={vehicleDivRef}
             style={{
-              display: "block",
-              height: "100%",
-              width: "100%",
+              height: vehicleRenderPx,
+              width: vehicleRenderPx,
+              opacity: 0.98,
+              pointerEvents: "none",
+              position: "absolute",
+              left: 0,
+              top: 0,
+              transformOrigin: "center center",
+              willChange: "transform",
+              zIndex: 10,
             }}
-          />
-        </div>
-      )}
+          >
+            <img
+              src={vehicleSpriteUrl}
+              alt=""
+              style={{
+                display: "block",
+                height: "100%",
+                width: "100%",
+              }}
+            />
+          </div>
+        )}
+      </div>
       <AbsoluteFill
         style={{
           background: [
