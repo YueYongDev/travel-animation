@@ -264,7 +264,7 @@ const TRANSPORT_MOTION_STYLES: Record<TransportMode, TransportMotionStyle> = {
     minSamples: 40,
     rotationBridgeWindow: 0.12,
     stabilizeMix: 0.54,
-    travelEasing: Easing.bezier(0.3, 0.08, 0.18, 1),
+    travelEasing: Easing.linear,
     zoomBridgeWindow: 0.5,
   },
   car: {
@@ -281,7 +281,7 @@ const TRANSPORT_MOTION_STYLES: Record<TransportMode, TransportMotionStyle> = {
     minSamples: 42,
     rotationBridgeWindow: 0.14,
     stabilizeMix: 0.58,
-    travelEasing: Easing.bezier(0.28, 0.06, 0.18, 1),
+    travelEasing: Easing.linear,
     zoomBridgeWindow: 0.5,
   },
   plane: {
@@ -315,7 +315,7 @@ const TRANSPORT_MOTION_STYLES: Record<TransportMode, TransportMotionStyle> = {
     minSamples: 64,
     rotationBridgeWindow: 0.18,
     stabilizeMix: 0.62,
-    travelEasing: Easing.bezier(0.24, 0.08, 0.16, 1),
+    travelEasing: Easing.linear,
     zoomBridgeWindow: 0.55,
   },
   train: {
@@ -332,7 +332,7 @@ const TRANSPORT_MOTION_STYLES: Record<TransportMode, TransportMotionStyle> = {
     minSamples: 46,
     rotationBridgeWindow: 0.18,
     stabilizeMix: 0.7,
-    travelEasing: Easing.bezier(0.2, 0.06, 0.14, 1),
+    travelEasing: Easing.linear,
     zoomBridgeWindow: 0.55,
   },
   walk: {
@@ -349,7 +349,7 @@ const TRANSPORT_MOTION_STYLES: Record<TransportMode, TransportMotionStyle> = {
     minSamples: 38,
     rotationBridgeWindow: 0.12,
     stabilizeMix: 0.5,
-    travelEasing: Easing.bezier(0.32, 0.08, 0.2, 1),
+    travelEasing: Easing.linear,
     zoomBridgeWindow: 0.5,
   },
 };
@@ -412,6 +412,39 @@ const emitMotionDebug = (detail: {
   }
 };
 
+const resamplePathUniformly = (coordinates: Coordinate[], sampleCount: number): Coordinate[] => {
+  if (coordinates.length < 2) return coordinates;
+  let totalDistance = 0;
+  const cumulativeDistances = [0];
+  for (let i = 1; i < coordinates.length; i++) {
+    totalDistance += haversineDistanceKm(coordinates[i - 1], coordinates[i]);
+    cumulativeDistances.push(totalDistance);
+  }
+  
+  if (totalDistance === 0) return coordinates;
+
+  const resampled: Coordinate[] = [coordinates[0]];
+  const step = totalDistance / sampleCount;
+
+  let currentDist = step;
+  let index = 1;
+
+  for (let i = 1; i < sampleCount; i++) {
+    while (index < cumulativeDistances.length - 1 && cumulativeDistances[index] < currentDist) {
+      index++;
+    }
+    const distPrev = cumulativeDistances[index - 1];
+    const distNext = cumulativeDistances[index];
+    const segmentLength = distNext - distPrev;
+    const progress = segmentLength === 0 ? 0 : (currentDist - distPrev) / segmentLength;
+    resampled.push(mixCoordinate(coordinates[index - 1], coordinates[index], progress));
+    currentDist += step;
+  }
+  
+  resampled.push(coordinates[coordinates.length - 1]);
+  return resampled;
+};
+
 const buildBezierPath = (
   start: Coordinate,
   end: Coordinate,
@@ -459,9 +492,10 @@ const buildBezierPath = (
   ];
   const coordinates: Coordinate[] = [];
   const sampleCount = Math.max(profile.sampleCount, motionStyle.minSamples);
+  const oversampleCount = sampleCount * 4; // Generate extra points to resample smoothly
 
-  for (let index = 0; index <= sampleCount; index += 1) {
-    const progress = index / sampleCount;
+  for (let index = 0; index <= oversampleCount; index += 1) {
+    const progress = index / oversampleCount;
     const inverse = 1 - progress;
     coordinates.push([
       inverse * inverse * start[0] + 2 * inverse * progress * control[0] + progress * progress * endLng,
@@ -469,7 +503,7 @@ const buildBezierPath = (
     ]);
   }
 
-  return coordinates;
+  return resamplePathUniformly(coordinates, sampleCount);
 };
 
 const buildJourneyPlan = (
@@ -828,52 +862,7 @@ const getTravelCameraCenter = (
   progress: number,
 ): Coordinate => {
   const clamped = clamp(progress, 0, 1);
-  const motionStyle = TRANSPORT_MOTION_STYLES[segment.mode];
-  const head = getPathPoint(segment.path, clamped);
-  const lookAhead = getPathPoint(
-    segment.path,
-    clamp(clamped + segment.profile.travelLead, 0, 1),
-  );
-  const tail = getPathPoint(
-    segment.path,
-    clamp(clamped - Math.max(segment.profile.travelLead * 0.35, 0.012), 0, 1),
-  );
-  const midpoint = getPathPoint(segment.path, 0.5);
-  const leadCenter = mixCoordinate(head, lookAhead, motionStyle.lookAheadMix);
-  const effectiveStabilize = Math.max(motionStyle.stabilizeMix, 0.82);
-  const stabilizedCenter = mixCoordinate(tail, leadCenter, effectiveStabilize);
-  const pull =
-    segment.profile.centerPull * motionStyle.midpointPull * Math.sin(Math.PI * clamped);
-
-  if (segment.mode === "plane") {
-    return mixCoordinate(
-      mixCoordinate(stabilizedCenter, midpoint, segment.profile.centerPull * Math.sin(Math.PI * clamped)),
-      segment.end,
-      clamped * clamped,
-    );
-  }
-
-  const trajectoryCenter = mixCoordinate(stabilizedCenter, midpoint, pull);
-  const anchoredCenter = mixCoordinate(
-    trajectoryCenter,
-    head,
-    motionStyle.headFollowMix,
-  );
-  const launchBlend = easeOutCubic(clamp(clamped / motionStyle.launchWindow, 0, 1));
-  const enteredCenter =
-    segmentIndex === 0
-      ? mixCoordinate(segment.start, anchoredCenter, launchBlend)
-      : anchoredCenter;
-  const arrivalBlend = easeOutCubic(
-    clamp(
-      (clamped - motionStyle.arrivalBlendStart) /
-      Math.max(1 - motionStyle.arrivalBlendStart, 0.001),
-      0,
-      1,
-    ),
-  );
-
-  return mixCoordinate(enteredCenter, segment.end, arrivalBlend);
+  return getPathPoint(segment.path, clamped);
 };
 
 const getTravelEasing = (segment: JourneySegment) => {
