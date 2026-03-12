@@ -163,6 +163,8 @@ const toInputProps = (
   stops: Stop[],
   legModes: readonly TransportMode[],
   showRouteOverlay: boolean,
+  focusStopIndex?: number | null,
+  flyToStopIndex?: number | null,
 ): TravelMapJourneyProps => {
   return {
     legModes: [...legModes],
@@ -175,6 +177,8 @@ const toInputProps = (
       title: stop.city,
     })),
     showRouteOverlay,
+    focusStopIndex,
+    flyToStopIndex,
   };
 };
 
@@ -222,7 +226,15 @@ export const createRemotionJourneyScene = async (
   stops: Stop[],
   legModes: readonly TransportMode[] = [],
   playbackRate = 1,
-  {showRouteOverlay = true}: {showRouteOverlay?: boolean} = {},
+  {
+    showRouteOverlay = true,
+    focusStopIndex = null,
+    flyToStopIndex = null,
+  }: {
+    showRouteOverlay?: boolean;
+    focusStopIndex?: number | null;
+    flyToStopIndex?: number | null;
+  } = {},
 ) => {
   const container = document.getElementById(containerId);
 
@@ -244,6 +256,8 @@ export const createRemotionJourneyScene = async (
   let currentStops = stops;
   let currentLegModes = normalizeLegModes(legModes, stops.length);
   let currentShowRouteOverlay = showRouteOverlay;
+  let currentFocusStopIndex: number | null = focusStopIndex;
+  let currentFlyToStopIndex: number | null = flyToStopIndex;
   let currentSyncMapFrames = false;
   let currentStopCoordinates: JourneyStopCoordinate[] = stops.map((stop) => ({
     lat: stop.lat,
@@ -309,6 +323,8 @@ export const createRemotionJourneyScene = async (
             currentStops,
             currentLegModes,
             currentShowRouteOverlay,
+            currentFocusStopIndex,
+            currentFlyToStopIndex,
           ),
           syncMapFrames: currentSyncMapFrames,
           onFrameSettled: (frame) => resolveFrameWaiters(currentGeneration, frame),
@@ -503,7 +519,7 @@ export const createRemotionJourneyScene = async (
     update: (
       nextStops: Stop[],
       nextLegModes: readonly TransportMode[] = [],
-      options: {showRouteOverlay?: boolean} = {},
+      options: {showRouteOverlay?: boolean; focusStopIndex?: number | null; flyToStopIndex?: number | null} = {},
     ) => {
       stopFocusAnimation();
       clearTimers();
@@ -517,6 +533,14 @@ export const createRemotionJourneyScene = async (
         typeof options.showRouteOverlay === "boolean"
           ? options.showRouteOverlay
           : currentShowRouteOverlay;
+      currentFocusStopIndex =
+        options.focusStopIndex !== undefined
+          ? options.focusStopIndex
+          : currentFocusStopIndex;
+      currentFlyToStopIndex =
+        options.flyToStopIndex !== undefined
+          ? options.flyToStopIndex
+          : currentFlyToStopIndex;
       currentStopCoordinates = nextStops.map((stop) => ({
         lat: stop.lat,
         lon: stop.lon,

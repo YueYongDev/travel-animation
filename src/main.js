@@ -527,7 +527,7 @@ function initModeToggles() {
         if (toggle) setModeForToggle(toggle, option.dataset.mode);
         if (connector) connector.dataset.distanceReady = "true";
         updateLegDistanceLabels();
-        if (connector) closeAllModePickers(connector);
+        closeAllModePickers();
         return;
       }
 
@@ -1321,12 +1321,16 @@ async function refreshPreviewSceneFromRows({
     setSelectedTimelineRow(focusRow);
   }
 
+  const focusStopIndex = focusRow ? rowToStopIndex.get(focusRow) : null;
+  const initialFocusIndex = typeof focusStopIndex === "number" ? Math.max(0, focusStopIndex - 1) : undefined;
+  
   const legModes = collectLegModes(Math.max(0, stops.length - 1));
   const nextScene = await initScene(stops, legModes, {
     setBusyState: false,
     showRouteOverlay,
+    focusStopIndex: initialFocusIndex,
+    flyToStopIndex: focusStopIndex,
   });
-  const focusStopIndex = focusRow ? rowToStopIndex.get(focusRow) : null;
   if (typeof focusStopIndex === "number" && !showRouteOverlay) {
     await new Promise((resolve) => {
       window.requestAnimationFrame(() => {
@@ -1621,7 +1625,7 @@ function addDestinationRow() {
 async function initScene(
   stops,
   legModes,
-  { showRouteOverlay = true, setBusyState = true } = {},
+  { showRouteOverlay = true, setBusyState = true, focusStopIndex, flyToStopIndex } = {},
 ) {
   const task = sceneInitQueue.catch(() => {}).then(async () => {
     if (setBusyState) {
@@ -1636,10 +1640,10 @@ async function initScene(
           stops,
           legModes,
           playbackRate,
-          { showRouteOverlay },
+          { showRouteOverlay, focusStopIndex, flyToStopIndex },
         );
       } else {
-        scene.update?.(stops, legModes, { showRouteOverlay });
+        scene.update?.(stops, legModes, { showRouteOverlay, focusStopIndex, flyToStopIndex });
       }
 
       scene.resetToStart?.();

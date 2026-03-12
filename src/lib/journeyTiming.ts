@@ -1,4 +1,4 @@
-import type {TransportMode} from "./routeSchema";
+import type { TransportMode } from "./routeSchema";
 
 export const COMPOSITION_FPS = 30;
 export const COMPOSITION_WIDTH = 1920;
@@ -7,7 +7,7 @@ export const OPENING_HOLD_FRAMES = 2;
 export const END_HOLD_FRAMES = 24;
 export const DEFAULT_TRANSPORT_MODE: TransportMode = "plane";
 const TRAVEL_FRAME_MULTIPLIER = 0.78;
-const FIRST_SEGMENT_FOCUS_MULTIPLIER = 0.2;
+const FIRST_SEGMENT_FOCUS_MULTIPLIER = 0.5;
 type Coordinate = [number, number];
 
 export type JourneyStopCoordinate = {
@@ -198,9 +198,9 @@ const haversineDistanceKm = (start: Coordinate, end: Coordinate) => {
   const a =
     Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
     Math.cos(startLat) *
-      Math.cos(endLat) *
-      Math.sin(deltaLng / 2) *
-      Math.sin(deltaLng / 2);
+    Math.cos(endLat) *
+    Math.sin(deltaLng / 2) *
+    Math.sin(deltaLng / 2);
 
   return 2 * earthRadiusKm * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
@@ -255,10 +255,11 @@ export const buildJourneySegments = (
   for (let index = 0; index < modes.length; index += 1) {
     const mode = modes[index];
     const profile = getTransportProfile(mode);
+    const WAYPOINT_TRANSITION_FRAMES = 0;
     const focusFrames =
       index === 0
         ? Math.max(4, Math.round(profile.focusFrames * FIRST_SEGMENT_FOCUS_MULTIPLIER))
-        : 0;
+        : WAYPOINT_TRANSITION_FRAMES;
     const settleFrames = getCameraSettleFrames({
       index,
       legModes: modes,

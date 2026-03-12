@@ -40,4 +40,6 @@ export type TravelMapJourneyProps = TravelMapJourneyInput & {
   resolvedStops?: ResolvedStop[];
   showRouteOverlay?: boolean;
   syncMapFrames?: boolean;
+  focusStopIndex?: number | null;
+  flyToStopIndex?: number | null;
 };

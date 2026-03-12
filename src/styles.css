@@ -544,13 +544,17 @@ input::placeholder {
 }
 
 .row-order {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
   min-height: 56px;
+  width: 100%;
   color: var(--text-faint);
   font-size: 15px;
   font-weight: 800;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
 }
 
 .timeline-row-main {
