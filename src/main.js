@@ -85,6 +85,34 @@ let motionDebugTextarea = null;
 let motionDebugLiveText = "";
 let motionDebugSegmentsText = "";
 let motionDebugBoundaryText = "";
+const PLAY_BUTTON_REPLAY_HTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg> Replay';
+const EXPORT_BUTTON_HTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Export';
+
+function syncExportButtonState() {
+  if (!exportBtn) return;
+  const canExport =
+    Boolean(scene) &&
+    !building &&
+    !playing &&
+    Boolean(latestPlaybackBlob);
+  exportBtn.disabled = !canExport;
+  exportBtn.title = canExport ? "" : "Generate Route first, then export after the preview finishes.";
+  if (!building && !playing) {
+    exportBtn.innerHTML = EXPORT_BUTTON_HTML;
+  }
+}
+
+function resetLatestPlayback() {
+  latestPlaybackBlob = null;
+  latestPlaybackMimeType = "";
+  syncExportButtonState();
+}
+
+function storeLatestPlayback(blob, mimeType) {
+  latestPlaybackBlob = blob;
+  latestPlaybackMimeType = mimeType;
+  syncExportButtonState();
+}
 
 function ensureMotionDebugPanel() {
   if (!motionDebugEnabled || motionDebugPanel) {
@@ -417,8 +445,13 @@ function updateSpeedControlUI() {
 
 function setPlaybackRate(nextRate) {
   if (!SPEED_OPTIONS.includes(nextRate)) return;
+  if (playbackRate === nextRate) {
+    closeSpeedMenu();
+    return;
+  }
   playbackRate = nextRate;
   scene?.setPlaybackRate?.(playbackRate);
+  resetLatestPlayback();
   updateSpeedControlUI();
   closeSpeedMenu();
 }
@@ -1314,6 +1347,7 @@ function collectResolvedStopsFromRows() {
 async function refreshPreviewSceneFromRows({
   focusRow = null,
   showRouteOverlay = false,
+  invalidatePlaybackCache = true,
 } = {}) {
   const { stops, rowToStopIndex } = collectResolvedStopsFromRows();
   if (!stops.length) return;
@@ -1330,6 +1364,7 @@ async function refreshPreviewSceneFromRows({
     showRouteOverlay,
     focusStopIndex: initialFocusIndex,
     flyToStopIndex: focusStopIndex,
+    invalidatePlaybackCache,
   });
   if (typeof focusStopIndex === "number" && !showRouteOverlay) {
     await new Promise((resolve) => {
@@ -1625,12 +1660,19 @@ function addDestinationRow() {
 async function initScene(
   stops,
   legModes,
-  { showRouteOverlay = true, setBusyState = true, focusStopIndex, flyToStopIndex } = {},
+  {
+    showRouteOverlay = true,
+    setBusyState = true,
+    focusStopIndex,
+    flyToStopIndex,
+    invalidatePlaybackCache = setBusyState,
+  } = {},
 ) {
   const task = sceneInitQueue.catch(() => {}).then(async () => {
     if (setBusyState) {
       building = true;
       syncGenerateButtonState();
+      syncExportButtonState();
     }
 
     try {
@@ -1649,10 +1691,9 @@ async function initScene(
       scene.resetToStart?.();
       await scene.whenReady?.();
 
-      if (setBusyState) {
+      if (invalidatePlaybackCache) {
         hideArrival();
-        latestPlaybackBlob = null;
-        latestPlaybackMimeType = "";
+        resetLatestPlayback();
       }
 
       return scene;
@@ -1660,6 +1701,7 @@ async function initScene(
       if (setBusyState) {
         building = false;
         syncGenerateButtonState();
+        syncExportButtonState();
       }
     }
   });
@@ -1681,10 +1723,11 @@ function cycleBasemap() {
 
 async function run() {
   if (!scene || playing) return;
-  await refreshPreviewSceneFromRows({showRouteOverlay: true});
+  await refreshPreviewSceneFromRows({ showRouteOverlay: true });
   await scene.whenReady?.();
   hideArrival();
   playing = true;
+  syncExportButtonState();
   playBtn.disabled = true;
   playBtn.textContent = "Playing...";
 
@@ -1723,19 +1766,18 @@ async function run() {
     if (recorder && recorder.state !== "inactive") {
       recorder.stop();
       await stopRecordingPromise;
-      latestPlaybackBlob = new Blob(recordingChunks, { type: mimeType });
-      latestPlaybackMimeType = mimeType;
+      storeLatestPlayback(new Blob(recordingChunks, { type: mimeType }), mimeType);
     }
   } catch (error) {
     if (recorder && recorder.state !== "inactive") recorder.stop();
-    latestPlaybackBlob = null;
-    latestPlaybackMimeType = "";
+    resetLatestPlayback();
     // eslint-disable-next-line no-alert
     alert(error.message || "播放失败，请重试。");
   } finally {
     playing = false;
+    syncExportButtonState();
     playBtn.disabled = false;
-    playBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg> Replay';
+    playBtn.innerHTML = PLAY_BUTTON_REPLAY_HTML;
     try {
       await refreshPreviewSceneFromRows({
         focusRow: selectedTimelineRow,
@@ -1827,8 +1869,7 @@ async function exportVideo() {
     // eslint-disable-next-line no-alert
     alert(getExportErrorMessage(error));
   } finally {
-    exportBtn.disabled = false;
-    exportBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Export';
+    syncExportButtonState();
   }
 }
 
@@ -1943,6 +1984,7 @@ function bindWorkspaceEvents() {
   updateSpeedControlUI();
   updateRouteOverview();
   syncGenerateButtonState();
+  syncExportButtonState();
 
   initScene(
     [

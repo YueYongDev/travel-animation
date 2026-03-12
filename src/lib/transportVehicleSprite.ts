@@ -118,6 +118,44 @@ const createVehiclePalette = (mode: TransportMode) => {
   };
 };
 
+const drawWheel = (
+  context: DrawingContext,
+  {
+    hubRadius = 4,
+    ringColor,
+    x,
+    y,
+    radius,
+  }: {
+    hubRadius?: number;
+    ringColor: string;
+    x: number;
+    y: number;
+    radius: number;
+  },
+) => {
+  context.fillStyle = "rgba(7, 12, 20, 0.94)";
+  context.beginPath();
+  context.arc(x, y, radius, 0, Math.PI * 2);
+  context.fill();
+
+  context.strokeStyle = ringColor;
+  context.lineWidth = Math.max(2.2, radius * 0.22);
+  context.beginPath();
+  context.arc(x, y, radius - 1.9, 0, Math.PI * 2);
+  context.stroke();
+
+  context.fillStyle = "#fff8ed";
+  context.beginPath();
+  context.arc(x, y, hubRadius, 0, Math.PI * 2);
+  context.fill();
+
+  context.fillStyle = "rgba(7, 12, 20, 0.24)";
+  context.beginPath();
+  context.arc(x, y, Math.max(1.8, hubRadius - 1.5), 0, Math.PI * 2);
+  context.fill();
+};
+
 const drawPlane = (context: DrawingContext, mode: TransportMode) => {
   void mode;
   const shadow = new Path2D();
@@ -202,27 +240,30 @@ const drawPlane = (context: DrawingContext, mode: TransportMode) => {
 
 const drawTrain = (context: DrawingContext, mode: TransportMode) => {
   const palette = createVehiclePalette(mode);
-  const shadow = new Path2D();
-  shadow.ellipse(0, 0, 54, 18, 0, 0, Math.PI * 2);
+  
+  // Shadow
   context.fillStyle = "rgba(6, 11, 20, 0.12)";
-  context.fill(shadow);
+  context.beginPath();
+  context.ellipse(0, 16, 52, 10, 0, 0, Math.PI * 2);
+  context.fill();
 
   const body = new Path2D();
-  body.moveTo(-60, -16);
-  body.quadraticCurveTo(-68, -16, -68, -7);
-  body.lineTo(-68, 7);
-  body.quadraticCurveTo(-68, 16, -60, 16);
-  body.lineTo(24, 16);
-  body.quadraticCurveTo(38, 16, 50, 7);
-  body.lineTo(62, 0);
-  body.lineTo(50, -7);
-  body.quadraticCurveTo(38, -16, 24, -16);
+  body.moveTo(-64, -12);
+  body.lineTo(24, -12);
+  body.quadraticCurveTo(42, -12, 54, -4);
+  body.lineTo(60, 0);
+  body.lineTo(54, 4);
+  body.quadraticCurveTo(42, 12, 24, 12);
+  body.lineTo(-64, 12);
+  body.quadraticCurveTo(-68, 12, -68, 6);
+  body.lineTo(-68, -6);
+  body.quadraticCurveTo(-68, -12, -64, -12);
   body.closePath();
 
-  withShadow(context, {blur: 10, color: "rgba(5, 8, 22, 0.16)", offsetY: 0}, () => {
-    const fill = context.createLinearGradient(-68, -12, 62, 12);
-    fill.addColorStop(0, "#fffefb");
-    fill.addColorStop(0.58, palette.body);
+  withShadow(context, {blur: 10, color: palette.shadow, offsetY: 2}, () => {
+    const fill = context.createLinearGradient(-68, -12, 60, 12);
+    fill.addColorStop(0, "#f8fafc");
+    fill.addColorStop(0.5, palette.body);
     fill.addColorStop(1, palette.bodyDeep);
     context.fillStyle = fill;
     context.fill(body);
@@ -232,146 +273,209 @@ const drawTrain = (context: DrawingContext, mode: TransportMode) => {
   context.lineWidth = 1.8;
   context.stroke(body);
 
-  context.fillStyle = rgba(palette.accent, 0.94);
-  fillRoundedRect(context, -56, -3.5, 92, 7, 3.5);
+  // Stripe
+  context.fillStyle = palette.accent;
+  fillRoundedRect(context, -58, 2, 90, 4.5, 2.25);
   context.fill();
 
+  // Windows
   context.fillStyle = palette.cabin;
-  fillRoundedRect(context, -42, -10.5, 58, 8.4, 4.2);
+  for (let i = 0; i < 4; i++) {
+    fillRoundedRect(context, -52 + i * 16, -9, 10, 7, 2);
+  }
   context.fill();
 
+  // Windshield
   const windshield = new Path2D();
-  windshield.moveTo(28, -8.5);
-  windshield.lineTo(40, -8.5);
-  windshield.quadraticCurveTo(48, -8.5, 54, -3.5);
-  windshield.lineTo(58, 0);
-  windshield.lineTo(54, 3.5);
-  windshield.quadraticCurveTo(48, 8.5, 40, 8.5);
-  windshield.lineTo(28, 8.5);
-  windshield.quadraticCurveTo(24, 8.5, 24, 4.5);
-  windshield.lineTo(24, -4.5);
-  windshield.quadraticCurveTo(24, -8.5, 28, -8.5);
+  windshield.moveTo(24, -8);
+  windshield.lineTo(38, -8);
+  windshield.quadraticCurveTo(48, -8, 54, -2);
+  windshield.lineTo(56, 0);
+  windshield.lineTo(54, 2);
+  windshield.quadraticCurveTo(48, 8, 38, 8);
+  windshield.lineTo(24, 8);
   windshield.closePath();
-  context.fillStyle = palette.cabin;
   context.fill(windshield);
+};
 
-  context.fillStyle = "rgba(255, 255, 255, 0.52)";
-  fillRoundedRect(context, -49, -12.5, 54, 3.4, 1.7);
-  context.fill();
-
-  context.fillStyle = rgba("#1e3a8a", 0.16);
-  fillRoundedRect(context, -8, -13.5, 1.8, 27, 0.9);
-  context.fill();
-  fillRoundedRect(context, 10, -13.5, 1.8, 27, 0.9);
-  context.fill();
-
-  context.fillStyle = "rgba(255, 255, 255, 0.82)";
+const drawHighSpeedTrain = (context: DrawingContext, mode: TransportMode) => {
+  const palette = createVehiclePalette(mode);
+  
+  // Shadow
+  context.fillStyle = "rgba(6, 11, 20, 0.1)";
   context.beginPath();
-  context.arc(55.2, 0, 2.1, 0, Math.PI * 2);
+  context.ellipse(4, 18, 60, 8, 0, 0, Math.PI * 2);
   context.fill();
+
+  const body = new Path2D();
+  body.moveTo(-74, -10);
+  body.lineTo(10, -10);
+  body.quadraticCurveTo(48, -10, 68, -2);
+  body.lineTo(76, 0);
+  body.lineTo(68, 2);
+  body.quadraticCurveTo(48, 10, 10, 10);
+  body.lineTo(-74, 10);
+  body.quadraticCurveTo(-78, 10, -78, 5);
+  body.lineTo(-78, -5);
+  body.quadraticCurveTo(-78, -10, -74, -10);
+  body.closePath();
+
+  withShadow(context, {blur: 12, color: palette.shadow, offsetY: 2}, () => {
+    const fill = context.createLinearGradient(-78, -10, 76, 10);
+    fill.addColorStop(0, "#ffffff");
+    fill.addColorStop(0.6, palette.body);
+    fill.addColorStop(1, "#f1f5f9");
+    context.fillStyle = fill;
+    context.fill(body);
+  });
+
+  context.strokeStyle = palette.outline;
+  context.lineWidth = 1.6;
+  context.stroke(body);
+
+  // Aerodynamic Stripe
+  context.fillStyle = palette.accent;
+  const stripe = new Path2D();
+  stripe.moveTo(-70, 0);
+  stripe.lineTo(-10, 0);
+  stripe.quadraticCurveTo(30, 0, 50, 4);
+  stripe.lineTo(48, 6);
+  stripe.quadraticCurveTo(28, 2, -10, 2);
+  stripe.lineTo(-70, 2);
+  stripe.closePath();
+  context.fill(stripe);
+
+  // Windows (long ribbon)
+  context.fillStyle = palette.cabin;
+  fillRoundedRect(context, -64, -7, 72, 4.5, 2.25);
+  context.fill();
+
+  // Nose glass
+  const nose = new Path2D();
+  nose.moveTo(28, -6);
+  nose.lineTo(44, -6);
+  nose.quadraticCurveTo(58, -6, 68, -1.5);
+  nose.lineTo(70, 0);
+  nose.lineTo(68, 1.5);
+  nose.quadraticCurveTo(58, 6, 44, 6);
+  nose.lineTo(28, 6);
+  nose.closePath();
+  context.fill(nose);
 };
 
 const drawCar = (context: DrawingContext, mode: TransportMode) => {
   const palette = createVehiclePalette(mode);
   const shadow = new Path2D();
-  shadow.ellipse(0, 0, 46, 16, 0, 0, Math.PI * 2);
-  context.fillStyle = "rgba(6, 11, 20, 0.12)";
+  shadow.ellipse(0, 18, 42, 10, 0, 0, Math.PI * 2);
+  context.fillStyle = "rgba(6, 11, 20, 0.14)";
   context.fill(shadow);
 
   const body = new Path2D();
-  body.moveTo(-54, -14);
-  body.quadraticCurveTo(-62, -14, -62, -5);
-  body.lineTo(-62, 5);
-  body.quadraticCurveTo(-62, 14, -54, 14);
-  body.lineTo(18, 14);
-  body.quadraticCurveTo(30, 14, 41, 7);
-  body.lineTo(56, 0);
-  body.lineTo(41, -7);
-  body.quadraticCurveTo(30, -14, 18, -14);
+  body.moveTo(-56, 7);
+  body.lineTo(-52, -2);
+  body.quadraticCurveTo(-48, -14, -34, -19);
+  body.lineTo(-10, -25);
+  body.quadraticCurveTo(2, -28, 16, -26);
+  body.lineTo(26, -18);
+  body.lineTo(44, -8);
+  body.quadraticCurveTo(58, -2, 60, 7);
+  body.quadraticCurveTo(60, 13, 52, 13);
+  body.lineTo(-48, 13);
+  body.quadraticCurveTo(-56, 13, -56, 7);
   body.closePath();
 
-  withShadow(context, {blur: 10, color: "rgba(12, 14, 24, 0.16)", offsetY: 0}, () => {
-    const fill = context.createLinearGradient(-62, -10, 56, 10);
-    fill.addColorStop(0, mixColor(palette.accent, "#fff7ed", 0.3));
+  withShadow(context, {blur: 12, color: palette.shadow, offsetY: 2}, () => {
+    const fill = context.createLinearGradient(-60, -22, 60, 14);
+    fill.addColorStop(0, mixColor(palette.accent, "#fff8ef", 0.34));
     fill.addColorStop(0.5, palette.accent);
     fill.addColorStop(1, mixColor(palette.accent, "#08101f", 0.28));
     context.fillStyle = fill;
     context.fill(body);
   });
 
-  context.strokeStyle = rgba("#260808", 0.16);
+  context.strokeStyle = rgba("#260808", 0.14);
   context.lineWidth = 1.8;
   context.stroke(body);
 
+  const glass = new Path2D();
+  glass.moveTo(-24, -18);
+  glass.lineTo(-6, -22);
+  glass.quadraticCurveTo(6, -24, 16, -20);
+  glass.lineTo(30, -11);
+  glass.lineTo(22, -5);
+  glass.lineTo(-22, -5);
+  glass.closePath();
   context.fillStyle = palette.cabin;
-  fillRoundedRect(context, -24, -9.5, 36, 19, 8);
+  context.fill(glass);
+
+  context.fillStyle = "rgba(255, 255, 255, 0.42)";
+  fillRoundedRect(context, -20, -15.8, 13, 8.4, 4.2);
+  context.fill();
+  fillRoundedRect(context, 0, -15.2, 10, 7.8, 3.9);
   context.fill();
 
-  context.fillStyle = "rgba(255, 255, 255, 0.46)";
-  fillRoundedRect(context, -20, -7.5, 10, 15, 4.5);
-  context.fill();
-  fillRoundedRect(context, 1, -7.5, 8, 15, 4.5);
+  context.fillStyle = rgba(palette.accentSoft, 0.94);
+  fillRoundedRect(context, -38, 2.8, 58, 5.2, 2.6);
   context.fill();
 
-  context.fillStyle = rgba("#0a1220", 0.82);
-  fillRoundedRect(context, -34, -17.2, 12, 4.8, 2.4);
-  context.fill();
-  fillRoundedRect(context, -34, 12.4, 12, 4.8, 2.4);
-  context.fill();
-  fillRoundedRect(context, 14, -17.2, 12, 4.8, 2.4);
-  context.fill();
-  fillRoundedRect(context, 14, 12.4, 12, 4.8, 2.4);
-  context.fill();
-
-  context.fillStyle = "rgba(255, 248, 196, 0.92)";
+  context.fillStyle = "rgba(255, 252, 214, 0.9)";
   context.beginPath();
-  context.arc(53.5, -4, 2, 0, Math.PI * 2);
-  context.arc(53.5, 4, 2, 0, Math.PI * 2);
+  context.arc(55, -2.8, 1.8, 0, Math.PI * 2);
+  context.arc(55, 2.8, 1.8, 0, Math.PI * 2);
   context.fill();
 
   context.fillStyle = "rgba(255, 214, 214, 0.76)";
   context.beginPath();
-  context.arc(-58, -4, 1.7, 0, Math.PI * 2);
-  context.arc(-58, 4, 1.7, 0, Math.PI * 2);
+  context.arc(-54, -3, 1.6, 0, Math.PI * 2);
+  context.arc(-54, 3, 1.6, 0, Math.PI * 2);
   context.fill();
 
-  context.fillStyle = rgba("#ffffff", 0.18);
-  fillRoundedRect(context, -44, -2.2, 80, 4.4, 2.2);
-  context.fill();
+  drawWheel(context, {
+    hubRadius: 4.2,
+    radius: 10.5,
+    ringColor: palette.body,
+    x: -26,
+    y: 16,
+  });
+  drawWheel(context, {
+    hubRadius: 4.2,
+    radius: 10.5,
+    ringColor: palette.body,
+    x: 28,
+    y: 16,
+  });
 };
 
 const drawShip = (context: DrawingContext, mode: TransportMode) => {
   const palette = createVehiclePalette(mode);
   const shadow = new Path2D();
-  shadow.ellipse(0, 0, 48, 16, 0, 0, Math.PI * 2);
-  context.fillStyle = "rgba(6, 11, 20, 0.1)";
+  shadow.ellipse(0, 19, 48, 10, 0, 0, Math.PI * 2);
+  context.fillStyle = "rgba(6, 11, 20, 0.12)";
   context.fill(shadow);
 
-  context.strokeStyle = rgba("#9bd6e3", 0.46);
-  context.lineWidth = 2.6;
+  context.strokeStyle = rgba("#b7ecf5", 0.58);
+  context.lineWidth = 2.2;
   context.beginPath();
-  context.moveTo(-62, -8);
-  context.quadraticCurveTo(-52, -2, -40, -5);
-  context.moveTo(-62, 8);
-  context.quadraticCurveTo(-52, 2, -40, 5);
+  context.moveTo(-60, 18);
+  context.quadraticCurveTo(-46, 24, -30, 18);
+  context.moveTo(-6, 21);
+  context.quadraticCurveTo(10, 27, 28, 20);
   context.stroke();
 
   const hull = new Path2D();
-  hull.moveTo(-54, -15);
-  hull.lineTo(10, -15);
-  hull.quadraticCurveTo(26, -15, 40, -8);
-  hull.lineTo(57, 0);
-  hull.lineTo(40, 8);
-  hull.quadraticCurveTo(26, 15, 10, 15);
-  hull.lineTo(-54, 15);
-  hull.quadraticCurveTo(-60, 15, -60, 8);
-  hull.lineTo(-60, -8);
-  hull.quadraticCurveTo(-60, -15, -54, -15);
+  hull.moveTo(-56, 12);
+  hull.lineTo(-46, -6);
+  hull.lineTo(12, -6);
+  hull.quadraticCurveTo(30, -6, 42, -1);
+  hull.lineTo(58, 4);
+  hull.lineTo(44, 14);
+  hull.lineTo(-52, 14);
+  hull.quadraticCurveTo(-58, 14, -56, 12);
   hull.closePath();
 
-  withShadow(context, {blur: 10, color: "rgba(6, 16, 24, 0.14)", offsetY: 0}, () => {
-    const fill = context.createLinearGradient(-60, -12, 57, 12);
-    fill.addColorStop(0, mixColor(palette.accent, "#061018", 0.3));
+  withShadow(context, {blur: 12, color: palette.shadow, offsetY: 2}, () => {
+    const fill = context.createLinearGradient(-56, -8, 58, 16);
+    fill.addColorStop(0, palette.accentDeep);
     fill.addColorStop(0.54, palette.accent);
     fill.addColorStop(1, palette.accentDeep);
     context.fillStyle = fill;
@@ -383,76 +487,117 @@ const drawShip = (context: DrawingContext, mode: TransportMode) => {
   context.stroke(hull);
 
   context.fillStyle = palette.body;
-  fillRoundedRect(context, -24, -10.5, 32, 21, 7);
+  fillRoundedRect(context, -26, -24, 36, 16, 5.5);
   context.fill();
-  fillRoundedRect(context, 5, -8.5, 17, 17, 5.5);
+  fillRoundedRect(context, -8, -36, 22, 10, 4);
   context.fill();
 
   context.fillStyle = palette.cabin;
-  fillRoundedRect(context, -15, -6.5, 16, 5.5, 2.75);
+  fillRoundedRect(context, -18, -20, 20, 6.2, 3.1);
   context.fill();
-  fillRoundedRect(context, 8, -4.5, 10, 9, 3);
-  context.fill();
-
-  context.fillStyle = rgba("#ffffff", 0.52);
-  fillRoundedRect(context, -34, -2.5, 58, 5, 2.5);
+  fillRoundedRect(context, -2, -33.2, 10, 4.8, 2.4);
   context.fill();
 
-  context.fillStyle = rgba("#ffffff", 0.8);
+  context.fillStyle = rgba("#ffffff", 0.68);
+  fillRoundedRect(context, -38, -0.6, 62, 3.8, 1.9);
+  context.fill();
+
+  context.fillStyle = rgba(palette.accentSoft, 0.96);
+  fillRoundedRect(context, 6, -26, 7, 12, 3.5);
+  context.fill();
+
+  context.fillStyle = "rgba(255, 252, 222, 0.92)";
   context.beginPath();
-  context.arc(53.5, 0, 1.9, 0, Math.PI * 2);
+  context.arc(54.5, 3, 1.8, 0, Math.PI * 2);
   context.fill();
 };
 
 const drawBike = (context: DrawingContext, mode: TransportMode) => {
   const palette = createVehiclePalette(mode);
   const shadow = new Path2D();
-  shadow.ellipse(0, 0, 50, 16, 0, 0, Math.PI * 2);
-  context.fillStyle = "rgba(6, 11, 20, 0.1)";
+  shadow.ellipse(0, 18, 46, 9, 0, 0, Math.PI * 2);
+  context.fillStyle = "rgba(6, 11, 20, 0.12)";
   context.fill(shadow);
 
-  context.strokeStyle = rgba("#0f172a", 0.22);
-  context.lineWidth = 5.8;
-  context.beginPath();
-  context.arc(-28, 0, 12, 0, Math.PI * 2);
-  context.arc(28, 0, 12, 0, Math.PI * 2);
-  context.stroke();
+  drawWheel(context, {
+    hubRadius: 3.6,
+    radius: 12.5,
+    ringColor: rgba(palette.accent, 0.96),
+    x: -30,
+    y: 10,
+  });
+  drawWheel(context, {
+    hubRadius: 3.6,
+    radius: 12.5,
+    ringColor: rgba(palette.accent, 0.96),
+    x: 30,
+    y: 10,
+  });
 
-  context.strokeStyle = rgba(palette.accent, 0.96);
-  context.lineWidth = 4.4;
-  context.beginPath();
-  context.arc(-28, 0, 12, 0, Math.PI * 2);
-  context.arc(28, 0, 12, 0, Math.PI * 2);
-  context.stroke();
-
-  context.strokeStyle = "#fff7ed";
-  context.lineWidth = 5;
-  context.beginPath();
-  context.moveTo(-15, 0);
-  context.lineTo(-2, -8.5);
-  context.lineTo(12, 0);
-  context.lineTo(-1, 8.5);
-  context.closePath();
-  context.moveTo(12, 0);
-  context.lineTo(28, 0);
-  context.moveTo(-2, -8.5);
-  context.lineTo(28, 0);
-  context.moveTo(-5, -10.2);
-  context.lineTo(-11, -17);
-  context.moveTo(14, -2.8);
-  context.lineTo(20, -14);
-  context.moveTo(18, -14);
-  context.lineTo(31, -14);
-  context.stroke();
-
-  context.strokeStyle = palette.outline;
+  context.strokeStyle = rgba("#0f172a", 0.18);
   context.lineWidth = 1.5;
   context.beginPath();
-  context.moveTo(-2, -8.5);
-  context.lineTo(-2, 8.5);
-  context.moveTo(4.2, -4.2);
-  context.lineTo(4.2, 4.2);
+  context.moveTo(-30, 10);
+  context.lineTo(-8, 0);
+  context.lineTo(8, 10);
+  context.lineTo(-30, 10);
+  context.moveTo(30, 10);
+  context.lineTo(10, -8);
+  context.lineTo(-8, 0);
+  context.moveTo(10, -8);
+  context.lineTo(8, 10);
+  context.moveTo(-12, -9);
+  context.lineTo(-4, -9);
+  context.moveTo(12, -10);
+  context.lineTo(22, -17);
+  context.moveTo(19, -17);
+  context.lineTo(31, -17);
   context.stroke();
+
+  context.strokeStyle = rgba(palette.accentDeep, 0.55);
+  context.lineWidth = 6;
+  context.beginPath();
+  context.moveTo(-30, 10);
+  context.lineTo(-8, 0);
+  context.lineTo(8, 10);
+  context.lineTo(10, -8);
+  context.lineTo(-8, 0);
+  context.moveTo(10, -8);
+  context.lineTo(30, 10);
+  context.moveTo(-8, 0);
+  context.lineTo(-16, -10);
+  context.moveTo(-18, -10);
+  context.lineTo(-8, -10);
+  context.moveTo(12, -10);
+  context.lineTo(22, -17);
+  context.moveTo(19, -17);
+  context.lineTo(31, -17);
+  context.stroke();
+
+  context.strokeStyle = "#fff8ef";
+  context.lineWidth = 4.2;
+  context.beginPath();
+  context.moveTo(-30, 10);
+  context.lineTo(-8, 0);
+  context.lineTo(8, 10);
+  context.lineTo(10, -8);
+  context.lineTo(-8, 0);
+  context.moveTo(10, -8);
+  context.lineTo(30, 10);
+  context.moveTo(-8, 0);
+  context.lineTo(-16, -10);
+  context.moveTo(-18, -10);
+  context.lineTo(-8, -10);
+  context.moveTo(12, -10);
+  context.lineTo(22, -17);
+  context.moveTo(19, -17);
+  context.lineTo(31, -17);
+  context.stroke();
+
+  context.fillStyle = rgba(palette.accent, 0.98);
+  context.beginPath();
+  context.arc(-8, 0, 4.4, 0, Math.PI * 2);
+  context.fill();
 };
 
 const drawWalk = (context: DrawingContext, mode: TransportMode) => {
@@ -520,6 +665,9 @@ const drawVehicle = (context: DrawingContext, mode: TransportMode) => {
       return;
     case "train":
       drawTrain(context, mode);
+      return;
+    case "high_speed_train":
+      drawHighSpeedTrain(context, mode);
       return;
     case "walk":
       drawWalk(context, mode);

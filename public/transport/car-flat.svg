@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160">
+  <defs>
+    <radialGradient id="badge" cx="35%" cy="30%" r="80%">
+      <stop offset="0" stop-color="#56c3ff"/>
+      <stop offset=".62" stop-color="#1f9fff"/>
+      <stop offset="1" stop-color="#1678e8"/>
+    </radialGradient>
+    <filter id="softShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="7" stdDeviation="7" flood-color="#08101f" flood-opacity=".22"/>
+    </filter>
+  </defs>
+
+  <ellipse cx="80" cy="114" rx="28" ry="8" fill="#08101f" opacity=".14"/>
+
+  <g filter="url(#softShadow)">
+    <circle cx="80" cy="80" r="38" fill="url(#badge)"/>
+    <circle cx="80" cy="80" r="36" fill="none" stroke="#ffffff" stroke-opacity=".18" stroke-width="2"/>
+    <path d="M63 90v-8c0-3 1-6 3-9l6-8c3-4 8-6 13-6h10c5 0 10 2 13 6l6 8c2 3 3 6 3 9v8c0 4-3 7-7 7h-4v4c0 2-2 4-4 4h-4c-2 0-4-2-4-4v-4H79v4c0 2-2 4-4 4h-4c-2 0-4-2-4-4v-4h-4c-4 0-7-3-7-7zm9-8h16l-6-14h-4zm19 0h17l-6-14h-5z" fill="#ffffff"/>
+    <rect x="72" y="67" width="14" height="4" rx="2" fill="#1f9fff" opacity=".25"/>
+    <rect x="90" y="67" width="16" height="4" rx="2" fill="#1f9fff" opacity=".25"/>
+    <circle cx="74" cy="91" r="4" fill="#1f9fff" opacity=".22"/>
+    <circle cx="106" cy="91" r="4" fill="#1f9fff" opacity=".22"/>
+    <path d="M61 71c4-12 13-19 27-19 11 0 20 4 28 13" fill="none" stroke="#ffffff" stroke-opacity=".22" stroke-linecap="round" stroke-width="3"/>
+  </g>
+</svg>

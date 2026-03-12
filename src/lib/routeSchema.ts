@@ -2,6 +2,7 @@ import {z} from "zod";
 
 export const transportModes = [
   "plane",
+  "high_speed_train",
   "train",
   "car",
   "ship",

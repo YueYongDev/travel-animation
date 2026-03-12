@@ -5,7 +5,9 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AbsoluteFill,
   Easing,
+  Img,
   interpolate,
+  staticFile,
   useCurrentFrame,
   useDelayRender,
   useVideoConfig,
@@ -68,6 +70,18 @@ type TravelState = {
   center: Coordinate;
   pitch: number;
   zoom: number;
+};
+
+type ScreenPoint = {
+  x: number;
+  y: number;
+};
+
+type AttachedTrailOverlay = {
+  coordinates: Coordinate[];
+  headCoordinate: Coordinate;
+  rotation: number;
+  visible: boolean;
 };
 
 const HIDE_FEATURES = [
@@ -189,9 +203,10 @@ const getOverviewZoom = (distanceKm: number, mode: TransportMode) => {
   const modeBias: Record<TransportMode, number> = {
     bike: 2.1,
     car: 1.45,
-    plane: -0.2,
+    plane: 0.45,
     ship: 0.15,
     train: 1.1,
+    high_speed_train: 0.8,
     walk: 2.5,
   };
 
@@ -296,7 +311,7 @@ const TRANSPORT_MOTION_STYLES: Record<TransportMode, TransportMotionStyle> = {
     lookAheadMix: 0.58,
     midpointPull: 1,
     minSamples: 72,
-    rotationBridgeWindow: 0.2,
+    rotationBridgeWindow: 0,
     stabilizeMix: 0.78,
     travelEasing: Easing.linear,
     zoomBridgeWindow: 0.2,
@@ -334,6 +349,23 @@ const TRANSPORT_MOTION_STYLES: Record<TransportMode, TransportMotionStyle> = {
     stabilizeMix: 0.7,
     travelEasing: Easing.linear,
     zoomBridgeWindow: 0.55,
+  },
+  high_speed_train: {
+    arrivalBlendStart: 1,
+    curveCap: 0.28,
+    curveDistanceKm: 1800,
+    curveMultiplier: 0.1,
+    entryProgress: 0.002,
+    focusLeadProgress: 0.12,
+    headFollowMix: 0.85,
+    launchWindow: 0.03,
+    lookAheadMix: 0.48,
+    midpointPull: 0.05,
+    minSamples: 54,
+    rotationBridgeWindow: 0.2,
+    stabilizeMix: 0.75,
+    travelEasing: Easing.linear,
+    zoomBridgeWindow: 0.6,
   },
   walk: {
     arrivalBlendStart: 1,
@@ -644,11 +676,12 @@ const COMPLETED_ROUTE_WIDTH = createModeExpression((mode) => {
 });
 
 const HEAD_BADGE_RENDER_SIZE: Record<TransportMode, number> = {
-  bike: 0.94,
-  car: 0.96,
+  bike: 1.08,
+  car: 0.46,
   plane: 1.02,
-  ship: 1,
-  train: 0.98,
+  ship: 1.12,
+  train: 0.34,
+  high_speed_train: 0.9,
   walk: 0.9,
 };
 
@@ -656,9 +689,18 @@ const HEAD_BADGE_SCALE = createModeExpression((mode) => {
   return HEAD_BADGE_RENDER_SIZE[mode];
 });
 
+const PLANE_RENDER_PX = TRANSPORT_SPRITE_SIZE * HEAD_BADGE_RENDER_SIZE.plane * 0.5;
+const PLANE_TRAIL_TAIL_OFFSET_PX = (55 / TRANSPORT_SPRITE_SIZE) * PLANE_RENDER_PX;
+const PLANE_TRAIL_COLOR = getTransportProfile("plane").activeColor;
+const PLANE_TRAIL_WIDTH = getTransportProfile("plane").lineWidth;
+
+const usesAttachedTrail = (mode: TransportMode) => {
+  return mode === "plane";
+};
+
 const getActiveRouteRevealLead = (mode: TransportMode) => {
   if (mode === "plane") {
-    return 0.018;
+    return 0;
   }
 
   if (mode === "ship") {
@@ -666,6 +708,78 @@ const getActiveRouteRevealLead = (mode: TransportMode) => {
   }
 
   return 0;
+};
+
+const buildSvgPathData = (points: ScreenPoint[]) => {
+  if (points.length === 0) {
+    return "";
+  }
+
+  const [firstPoint, ...restPoints] = points;
+  return [
+    `M ${firstPoint.x.toFixed(2)} ${firstPoint.y.toFixed(2)}`,
+    ...restPoints.map((point) => `L ${point.x.toFixed(2)} ${point.y.toFixed(2)}`),
+  ].join(" ");
+};
+
+const getHeadProgress = (progress: number, phase: AnimationPhase) => {
+  if (phase === "opening" || phase === "settle") {
+    return 0;
+  }
+
+  if (phase === "hold" || phase === "end") {
+    return 1;
+  }
+
+  return clamp(progress, 0, 1);
+};
+
+const getHeadCoordinate = (
+  segment: JourneySegment,
+  progress: number,
+  phase: AnimationPhase,
+) => {
+  const headProgress = getHeadProgress(progress, phase);
+
+  if (headProgress <= 0) {
+    return segment.start;
+  }
+
+  if (headProgress >= 1) {
+    return segment.end;
+  }
+
+  return getPathPoint(segment.path, headProgress);
+};
+
+const getActiveSegmentCoordinates = (
+  segment: JourneySegment,
+  progress: number,
+  phase: AnimationPhase,
+) => {
+  const headProgress = getHeadProgress(progress, phase);
+
+  if (phase === "focus" || phase === "travel") {
+    return getPartialPath(segment.path, headProgress);
+  }
+
+  if (phase === "hold" || phase === "end") {
+    return segment.path;
+  }
+
+  return [segment.start, segment.start];
+};
+
+const getPlaneTrailTailPoint = (
+  headPoint: ScreenPoint,
+  rotation: number,
+): ScreenPoint => {
+  const radians = (rotation * Math.PI) / 180;
+
+  return {
+    x: headPoint.x - Math.cos(radians) * PLANE_TRAIL_TAIL_OFFSET_PX,
+    y: headPoint.y - Math.sin(radians) * PLANE_TRAIL_TAIL_OFFSET_PX,
+  };
 };
 
 const imageDataToDataUrl = (imageData: ImageData): string => {
@@ -678,11 +792,24 @@ const imageDataToDataUrl = (imageData: ImageData): string => {
   return canvas.toDataURL("image/png");
 };
 
+const staticVehicleSpriteFiles: Partial<Record<TransportMode, string>> = {
+  car: "transport/car.svg",
+  train: "transport/train.svg",
+};
+
 const vehicleSpriteUrlCache: Partial<Record<TransportMode, string>> = {};
 
 const getVehicleSpriteUrl = (mode: TransportMode): string => {
   const cached = vehicleSpriteUrlCache[mode];
   if (cached) { return cached; }
+
+  const staticSpriteFile = staticVehicleSpriteFiles[mode];
+  if (staticSpriteFile) {
+    const url = staticFile(staticSpriteFile);
+    vehicleSpriteUrlCache[mode] = url;
+    return url;
+  }
+
   const imageData = createTransportVehicleImage(mode);
   const url = imageDataToDataUrl(imageData);
   vehicleSpriteUrlCache[mode] = url;
@@ -722,8 +849,10 @@ const buildCompletedRoutes = (
   progress: number,
   phase: AnimationPhase,
 ) => {
+  const previousSegment = currentSegment > 0 ? segments[currentSegment - 1] : null;
   const shouldHoldPreviousActive =
     currentSegment > 0 &&
+    !usesAttachedTrail(previousSegment?.mode ?? DEFAULT_TRANSPORT_MODE) &&
     (phase === "focus" || phase === "travel") &&
     progress < ROUTE_HANDOFF_PROGRESS;
   const completedSegmentCount = shouldHoldPreviousActive
@@ -762,6 +891,8 @@ const buildActiveRoute = (
 
   const isPreviewTravel =
     phase === "travel" || (phase === "focus" && progress > 0.0001);
+  const rendersActiveRouteInOverlay = usesAttachedTrail(segment.mode);
+  const previousSegment = currentSegment > 0 ? segments[currentSegment - 1] : null;
   const routeRevealLead = getActiveRouteRevealLead(segment.mode);
   const routeProgress = isPreviewTravel
     ? clamp(progress + routeRevealLead, 0, 1)
@@ -769,6 +900,7 @@ const buildActiveRoute = (
   const shouldHoldPreviousActive =
     currentSegment > 0 &&
     isPreviewTravel &&
+    !usesAttachedTrail(previousSegment?.mode ?? DEFAULT_TRANSPORT_MODE) &&
     progress < ROUTE_HANDOFF_PROGRESS;
   const coordinates =
     isPreviewTravel
@@ -794,16 +926,20 @@ const buildActiveRoute = (
           },
         ]
         : []),
-      {
-        type: "Feature" as const,
-        properties: {
-          mode: segment.mode,
-        },
-        geometry: {
-          type: "LineString" as const,
-          coordinates,
-        },
-      },
+      ...(!rendersActiveRouteInOverlay
+        ? [
+          {
+            type: "Feature" as const,
+            properties: {
+              mode: segment.mode,
+            },
+            geometry: {
+              type: "LineString" as const,
+              coordinates,
+            },
+          },
+        ]
+        : []),
     ],
   };
 };
@@ -824,17 +960,8 @@ const buildHeadPoint = (
   }
 
   const routeProgress =
-    phase === "opening" || phase === "settle"
-      ? 0
-      : phase === "hold" || phase === "end"
-        ? 1
-        : progress;
-  const coordinate =
-    phase === "opening" || phase === "settle"
-      ? segment.start
-      : phase === "focus" || phase === "travel"
-        ? getPathPoint(segment.path, progress)
-        : segment.end;
+    getHeadProgress(progress, phase);
+  const coordinate = getHeadCoordinate(segment, progress, phase);
   const rotation = getHeadRotation(segments, currentSegment, routeProgress, phase);
 
   return {
@@ -1250,17 +1377,8 @@ const getDebugHeadState = (
   }
 
   const routeProgress =
-    state.phase === "opening" || state.phase === "settle"
-      ? 0
-      : state.phase === "hold" || state.phase === "end"
-        ? 1
-        : state.routeProgress;
-  const coordinate =
-    state.phase === "opening" || state.phase === "settle"
-      ? segment.start
-      : state.phase === "focus" || state.phase === "travel"
-        ? getPathPoint(segment.path, routeProgress)
-        : segment.end;
+    getHeadProgress(state.routeProgress, state.phase);
+  const coordinate = getHeadCoordinate(segment, state.routeProgress, state.phase);
   const rotation = normalizeDegrees(
     getHeadRotation(
       segments,
@@ -1300,11 +1418,13 @@ const getDebugRouteTipState = (
 
   return {
     coordinate:
-      state.phase === "opening" || state.phase === "settle"
-        ? segment.start
-        : state.phase === "hold" || state.phase === "end"
-          ? segment.end
-          : getPathPoint(segment.path, routeProgress),
+      segment.mode === "plane"
+        ? getHeadCoordinate(segment, state.routeProgress, state.phase)
+        : state.phase === "opening" || state.phase === "settle"
+          ? segment.start
+          : state.phase === "hold" || state.phase === "end"
+            ? segment.end
+            : getPathPoint(segment.path, routeProgress),
   };
 };
 
@@ -1339,6 +1459,8 @@ export const TravelMapJourney = ({
   const motionDebugRowsRef = useRef<Array<Record<string, number | string>>>([]);
   const motionDebugLastCenterRef = useRef<Coordinate | null>(null);
   const motionDebugLastFrameRef = useRef<number>(-1);
+  const attachedTrailGeoRef = useRef<AttachedTrailOverlay | null>(null);
+  const attachedTrailPathRef = useRef<SVGPathElement>(null);
   const vehicleDivRef = useRef<HTMLDivElement>(null);
   const vehicleGeoRef = useRef<{ coordinate: Coordinate; rotation: number } | null>(null);
   const [vehicleOverlay, setVehicleOverlay] = useState<{ mode: TransportMode; visible: boolean }>({
@@ -1672,13 +1794,42 @@ export const TravelMapJourney = ({
     mapInstance.on("load", () => {
       mapRef.current = mapInstance;
 
-      const updateVehiclePosition = () => {
-        if (!vehicleGeoRef.current || !vehicleDivRef.current) return;
-        const pos = mapInstance.project(vehicleGeoRef.current.coordinate);
-        vehicleDivRef.current.style.transform = `translate(${pos.x}px, ${pos.y}px) translate(-50%, -50%) rotate(${vehicleGeoRef.current.rotation}deg)`;
+      const updateMovingOverlays = () => {
+        if (vehicleGeoRef.current && vehicleDivRef.current) {
+          const pos = mapInstance.project(wrapCoordinate(vehicleGeoRef.current.coordinate));
+          vehicleDivRef.current.style.transform =
+            `translate(${pos.x}px, ${pos.y}px) translate(-50%, -50%) rotate(${vehicleGeoRef.current.rotation}deg)`;
+        }
+
+        if (!attachedTrailPathRef.current) {
+          return;
+        }
+
+        const attachedTrail = attachedTrailGeoRef.current;
+        if (!attachedTrail?.visible || attachedTrail.coordinates.length < 2) {
+          attachedTrailPathRef.current.setAttribute("d", "");
+          attachedTrailPathRef.current.style.opacity = "0";
+          return;
+        }
+
+        const projectedPoints = attachedTrail.coordinates.map((coordinate) => {
+          const point = mapInstance.project(wrapCoordinate(coordinate));
+          return { x: point.x, y: point.y };
+        });
+        const headPoint = mapInstance.project(wrapCoordinate(attachedTrail.headCoordinate));
+        const trailPoints = [
+          ...projectedPoints.slice(0, -1),
+          getPlaneTrailTailPoint(
+            { x: headPoint.x, y: headPoint.y },
+            attachedTrail.rotation,
+          ),
+        ];
+
+        attachedTrailPathRef.current.setAttribute("d", buildSvgPathData(trailPoints));
+        attachedTrailPathRef.current.style.opacity = "1";
       };
 
-      mapInstance.on("render", updateVehiclePosition);
+      mapInstance.on("render", updateMovingOverlays);
       setMap(mapInstance);
 
       if (!showRouteOverlay && typeof flyToStopIndex === "number" && stops[flyToStopIndex]) {
@@ -1736,8 +1887,8 @@ export const TravelMapJourney = ({
     const animationHandle = shouldSyncFrame ? delayRender("Animating map...") : null;
     let settled = false;
     let fallbackTimeoutId: number | null = null;
+    let observedRender = false;
     const shouldWaitForTiles = shouldSyncFrame || frame === 0;
-    const settleEvent = shouldWaitForTiles ? "idle" : "render";
     const previewFocusState =
       !showRouteOverlay && typeof focusStopIndex === "number" && stops[focusStopIndex]
         ? getPreviewFocusState(focusStopIndex, journeySegments, stops)
@@ -1758,6 +1909,29 @@ export const TravelMapJourney = ({
         continueRender(animationHandle);
       }
       onFrameSettled?.(frame);
+    };
+
+    const finalizeAfterPaint = () => {
+      window.requestAnimationFrame(() => {
+        finalizeFrame();
+      });
+    };
+
+    const maybeFinalizeSyncedFrame = () => {
+      if (settled || !observedRender || !map.loaded()) {
+        return;
+      }
+
+      if (shouldWaitForTiles && !map.areTilesLoaded()) {
+        return;
+      }
+
+      finalizeAfterPaint();
+    };
+
+    const handleFrameRender = () => {
+      observedRender = true;
+      maybeFinalizeSyncedFrame();
     };
 
     map.jumpTo({
@@ -1812,9 +1986,31 @@ export const TravelMapJourney = ({
       if (headFeature) {
         const coords = headFeature.geometry.coordinates as Coordinate;
         const segment = journeySegments[routeAnimationState.currentSegment];
+        const keepVehicleUpright = segment?.mode === "car" || segment?.mode === "train";
+        attachedTrailGeoRef.current =
+          segment?.mode === "plane"
+            ? {
+              coordinates: getActiveSegmentCoordinates(
+                segment,
+                routeAnimationState.routeProgress,
+                routeAnimationState.phase,
+              ),
+              headCoordinate: getHeadCoordinate(
+                segment,
+                routeAnimationState.routeProgress,
+                routeAnimationState.phase,
+              ),
+              rotation: (headFeature.properties.rotation as number) ?? 0,
+              visible:
+                routeAnimationState.phase === "travel" ||
+                (routeAnimationState.phase === "focus" && routeAnimationState.routeProgress > 0.0001) ||
+                routeAnimationState.phase === "hold" ||
+                routeAnimationState.phase === "end",
+            }
+            : null;
         vehicleGeoRef.current = {
           coordinate: coords,
-          rotation: (headFeature.properties.rotation as number) ?? 0,
+          rotation: keepVehicleUpright ? 0 : ((headFeature.properties.rotation as number) ?? 0),
         };
         setVehicleOverlay((prev) => {
           if (prev.mode !== segment?.mode || !prev.visible) {
@@ -1823,10 +2019,12 @@ export const TravelMapJourney = ({
           return prev;
         });
       } else {
+        attachedTrailGeoRef.current = null;
         vehicleGeoRef.current = null;
         setVehicleOverlay((prev) => prev.visible ? { ...prev, visible: false } : prev);
       }
     } else {
+      attachedTrailGeoRef.current = null;
       vehicleGeoRef.current = null;
       setVehicleOverlay((prev) => prev.visible ? { ...prev, visible: false } : prev);
     }
@@ -1842,18 +2040,9 @@ export const TravelMapJourney = ({
       };
     }
 
+    map.on("render", handleFrameRender);
     map.triggerRepaint();
-    map.once(settleEvent, finalizeFrame);
-
-    window.requestAnimationFrame(() => {
-      if (settled) {
-        return;
-      }
-
-      if (!shouldWaitForTiles || (map.loaded() && map.areTilesLoaded())) {
-        finalizeFrame();
-      }
-    });
+    maybeFinalizeSyncedFrame();
 
     fallbackTimeoutId = window.setTimeout(finalizeFrame, shouldWaitForTiles ? 1200 : 180);
 
@@ -1861,7 +2050,7 @@ export const TravelMapJourney = ({
       if (fallbackTimeoutId !== null) {
         window.clearTimeout(fallbackTimeoutId);
       }
-      map.off(settleEvent, finalizeFrame);
+      map.off("render", handleFrameRender);
     };
   }, [
     continueRender,
@@ -1930,6 +2119,9 @@ export const TravelMapJourney = ({
 
   const vehicleSpriteUrl = useMemo(() => getVehicleSpriteUrl(vehicleOverlay.mode), [vehicleOverlay.mode]);
   const vehicleRenderPx = TRANSPORT_SPRITE_SIZE * (HEAD_BADGE_RENDER_SIZE[vehicleOverlay.mode] ?? 1) * 0.5;
+  const vehicleImageFilter = vehicleOverlay.mode === "car" || vehicleOverlay.mode === "train"
+    ? "drop-shadow(0 6px 10px rgba(15, 23, 42, 0.18))"
+    : undefined;
 
   return (
     <AbsoluteFill style={{ backgroundColor: "#cbd5e1" }}>
@@ -1943,6 +2135,33 @@ export const TravelMapJourney = ({
         }}
       >
         <div ref={ref} style={mapStyle} />
+        <svg
+          aria-hidden
+          style={{
+            height: "100%",
+            inset: 0,
+            overflow: "visible",
+            pointerEvents: "none",
+            position: "absolute",
+            width: "100%",
+            zIndex: 9,
+          }}
+          viewBox={`0 0 ${width} ${height}`}
+        >
+          <path
+            ref={attachedTrailPathRef}
+            d=""
+            fill="none"
+            stroke={PLANE_TRAIL_COLOR}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={PLANE_TRAIL_WIDTH}
+            style={{
+              filter: "drop-shadow(0 2px 4px rgba(124, 45, 18, 0.18))",
+              opacity: 0,
+            }}
+          />
+        </svg>
         {vehicleOverlay.visible && vehicleSpriteUrl && (
           <div
             ref={vehicleDivRef}
@@ -1959,12 +2178,14 @@ export const TravelMapJourney = ({
               zIndex: 10,
             }}
           >
-            <img
+            <Img
               src={vehicleSpriteUrl}
               alt=""
               style={{
                 display: "block",
                 height: "100%",
+                objectFit: "contain",
+                filter: vehicleImageFilter,
                 width: "100%",
               }}
             />
