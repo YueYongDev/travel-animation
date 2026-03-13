@@ -4,10 +4,12 @@ create table if not exists public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
   email text unique,
   display_name text,
-  credits integer not null default 10 check (credits >= 0),
+  credits integer not null default 200 check (credits >= 0),
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
+
+alter table public.profiles alter column credits set default 200;
 
 create table if not exists public.credit_transactions (
   id uuid primary key default gen_random_uuid(),
@@ -52,7 +54,7 @@ begin
   end if;
 
   insert into public.profiles (id, email, display_name, credits)
-  values (new.id, new.email, resolved_display_name, 10)
+  values (new.id, new.email, resolved_display_name, 200)
   on conflict (id) do update
     set email = excluded.email,
         display_name = coalesce(public.profiles.display_name, excluded.display_name);
@@ -60,9 +62,9 @@ begin
   insert into public.credit_transactions (user_id, amount, reason, balance_after, metadata)
   values (
     new.id,
-    10,
+    200,
     'signup_bonus',
-    10,
+    200,
     jsonb_build_object('source', 'auth_trigger')
   )
   on conflict do nothing;
@@ -86,7 +88,7 @@ with inserted_profiles as (
       nullif(trim(users.raw_user_meta_data ->> 'display_name'), ''),
       split_part(coalesce(users.email, ''), '@', 1)
     ),
-    10
+    200
   from auth.users as users
   where not exists (
     select 1
@@ -98,7 +100,7 @@ with inserted_profiles as (
 insert into public.credit_transactions (user_id, amount, reason, balance_after, metadata)
 select
   inserted_profiles.id,
-  10,
+  200,
   'signup_bonus',
   inserted_profiles.credits,
   jsonb_build_object('source', 'backfill')
@@ -183,7 +185,31 @@ begin
 end;
 $$;
 
+create or replace function public.is_email_registered(target_email text)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  normalized_email text;
+begin
+  normalized_email := nullif(lower(trim(coalesce(target_email, ''))), '');
+
+  if normalized_email is null then
+    return false;
+  end if;
+
+  return exists (
+    select 1
+    from auth.users
+    where lower(coalesce(users.email, '')) = normalized_email
+  );
+end;
+$$;
+
 grant execute on function public.consume_credits(integer, text, jsonb) to authenticated;
+grant execute on function public.is_email_registered(text) to anon, authenticated;
 
 do $$
 begin

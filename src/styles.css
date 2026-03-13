@@ -294,62 +294,45 @@ input::placeholder {
 }
 
 .account-menu-btn {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 10px;
-  min-height: 46px;
-  padding: 0 12px 0 8px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-pill);
-  background: rgba(255, 255, 255, 0.62);
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: 2px solid var(--text);
+  border-radius: 50%;
+  background: white;
   color: var(--text);
+  font-weight: 800;
   cursor: pointer;
   transition: transform var(--ease), border-color var(--ease), background var(--ease), box-shadow var(--ease);
 }
 
 .account-menu-btn:hover {
   transform: translateY(-1px);
-  border-color: var(--line-strong);
-  background: rgba(255, 255, 255, 0.78);
+  border-color: rgba(18, 17, 16, 0.16);
+  background: #fffdf9;
   box-shadow: var(--shadow-sm);
 }
 
 .account-avatar {
-  width: 30px;
-  height: 30px;
-  display: inline-flex;
+  width: 100%;
+  height: 100%;
+  display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
-  background: #111;
-  color: #f4efe6;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
 }
 
-.account-label {
-  font-size: 14px;
-  font-weight: 800;
-  white-space: nowrap;
-}
-
-.account-caret {
-  width: 14px;
-  height: 14px;
-  color: var(--text-faint);
-  transition: transform var(--ease), color var(--ease);
+.account-avatar svg {
+  width: 20px;
+  height: 20px;
 }
 
 .account-menu.is-open .account-menu-btn {
-  border-color: var(--line-strong);
-  background: rgba(255, 255, 255, 0.82);
+  border-color: rgba(18, 17, 16, 0.16);
+  background: #fffdf9;
   box-shadow: var(--shadow-sm);
-}
-
-.account-menu.is-open .account-caret {
-  transform: rotate(180deg);
-  color: var(--text);
 }
 
 .account-dropdown {

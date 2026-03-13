@@ -474,8 +474,10 @@ function getAccountInitials() {
 function syncAccountUI() {
   const copy = getCopy();
   const displayName = getAccountDisplayName();
-  if (accountAvatar) accountAvatar.textContent = getAccountInitials();
-  if (accountLabel) accountLabel.textContent = displayName;
+  
+  if (accountAvatar) {
+    accountAvatar.textContent = getAccountInitials();
+  }
   const remainingCredits = getRemainingCredits();
   if (creditsBadge) {
     creditsBadge.dataset.state = remainingCredits > 0 ? "available" : "empty";

@@ -63,6 +63,32 @@
             <polyline points="12 5 19 12 12 19" />
           </svg>
         </a>
+        <div id="landingAccountMenuRoot" class="landing-account-menu" hidden>
+          <button
+            id="landingAccountMenuButton"
+            class="landing-account-menu-btn"
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded="false"
+            aria-controls="landingAccountMenu"
+          >
+            <span id="landingAccountAvatar" class="landing-account-avatar" aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+              </svg>
+            </span>
+          </button>
+          <div id="landingAccountMenu" class="landing-account-dropdown" role="menu" hidden>
+            <div class="landing-account-meta">
+              <strong id="landingAccountMenuTitle">TrailFrame</strong>
+              <span id="landingAccountMenuSubtitle">trailframe@example.com</span>
+            </div>
+            <a id="landingWorkspaceLink" href="./workspace/" class="landing-account-item" role="menuitem">进入工作台</a>
+            <button id="landingAccountSignOutBtn" type="button" class="landing-account-item" role="menuitem">退出登录</button>
+          </div>
+        </div>
       </div>
     </header>
 

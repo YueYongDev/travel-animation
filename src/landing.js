@@ -1,9 +1,15 @@
 import { initSiteFooter, setFooterLocale } from "./site-footer";
 import {
   assertSupabaseConfigured,
+  buildAuthState,
   getAuthErrorMessage,
+  getAuthInitials,
+  getAuthProviderLabel,
   getSession,
+  isEmailRegistered,
+  signOut,
   supabase,
+  waitForProfile,
 } from "./lib/supabaseAuth";
 
 const LANDING_LOCALE_KEY = "trailframe-landing-locale";
@@ -28,7 +34,16 @@ const authOpeners = document.querySelectorAll("[data-auth-open]");
 const authClosers = document.querySelectorAll("[data-auth-close]");
 const startLinks = document.querySelectorAll("[data-auth-start]");
 const headerAuthLink = document.querySelector(".header-auth-link");
+const headerStartLink = document.querySelector(".primary-link-start");
 const localeToggle = document.getElementById("localeToggle");
+const landingAccountMenuRoot = document.getElementById("landingAccountMenuRoot");
+const landingAccountMenuButton = document.getElementById("landingAccountMenuButton");
+const landingAccountAvatar = document.getElementById("landingAccountAvatar");
+const landingAccountMenu = document.getElementById("landingAccountMenu");
+const landingAccountMenuTitle = document.getElementById("landingAccountMenuTitle");
+const landingAccountMenuSubtitle = document.getElementById("landingAccountMenuSubtitle");
+const landingWorkspaceLink = document.getElementById("landingWorkspaceLink");
+const landingAccountSignOutBtn = document.getElementById("landingAccountSignOutBtn");
 const authTabs = document.querySelector(".auth-tabs");
 const authFieldLabels = Array.from(document.querySelectorAll(".auth-field-label"));
 const authGithubLabel = authGithubBtn?.querySelector("span") ?? null;
@@ -80,6 +95,7 @@ let authMode = "login";
 let pendingRedirect = initialRedirect;
 let lastFocusedElement = null;
 let currentSession = null;
+let currentAuthState = null;
 let currentLocale = readStoredLocale();
 const configuredAuthSiteUrl =
   typeof __AUTH_SITE_URL__ === "string" ? __AUTH_SITE_URL__.trim() : "";
@@ -103,7 +119,7 @@ const LANDING_COPY = {
       status: {
         loginSuccess: "Signed in successfully. Opening the studio...",
         registerSuccessAuto:
-          "Account created. 10 credits added. Taking you to the studio...",
+          "Account created. 200 credits added. Taking you to the studio...",
         registerSuccessEmail:
           "Account created. Please verify your email before signing in.",
       },
@@ -118,7 +134,7 @@ const LANDING_COPY = {
       subtitle: {
         login: "Sign in to keep editing, check credits, and export videos.",
         register:
-          "Create an account and get 10 credits for your first export.",
+          "Create an account and get 200 credits for your first exports.",
       },
       tablistAria: "Log in or register",
       tabs: {
@@ -130,6 +146,7 @@ const LANDING_COPY = {
         register: "Create account",
       },
       validation: {
+        emailRegistered: "This email is already registered. Please log in instead.",
         invalidEmail: "Enter a valid email address.",
         passwordTooShort: "Password must be at least 6 characters.",
       },
@@ -184,10 +201,13 @@ const LANDING_COPY = {
         "© <span class=\"js-current-year\">{year}</span> TrailFrame Studio. All rights reserved.",
     },
     header: {
+      accountAria: "Open account menu",
+      accountFallbackTitle: "TrailFrame account",
       dashboard: "Studio",
       localeToggleAria: "Switch to Chinese",
       login: "Log in",
       loginAria: "Open sign-in dialog",
+      signOut: "Sign out",
       start: "Start now",
       workspaceAria: "Enter the studio",
     },
@@ -260,7 +280,7 @@ const LANDING_COPY = {
       status: {
         loginSuccess: "登录成功，正在进入工作台...",
         registerSuccessAuto:
-          "账号创建成功，10 积分已入账，正在进入工作台...",
+          "账号创建成功，200 积分已入账，正在进入工作台...",
         registerSuccessEmail:
           "注册成功，请先完成邮箱验证，再回来登录。",
       },
@@ -274,7 +294,7 @@ const LANDING_COPY = {
       },
       subtitle: {
         login: "登录以继续编辑、查看积分并导出视频",
-        register: "注册后立即获赠 10 积分，用于首次导出",
+        register: "注册后立即获赠 200 积分，可直接开始导出",
       },
       tablistAria: "登录注册",
       tabs: {
@@ -286,6 +306,7 @@ const LANDING_COPY = {
         register: "创建账号",
       },
       validation: {
+        emailRegistered: "该邮箱已注册，请直接登录。",
         invalidEmail: "请输入有效邮箱地址。",
         passwordTooShort: "密码至少需要 6 位。",
       },
@@ -340,10 +361,13 @@ const LANDING_COPY = {
         "© <span class=\"js-current-year\">{year}</span> TrailFrame Studio. 保留所有权利。",
     },
     header: {
+      accountAria: "打开账户菜单",
+      accountFallbackTitle: "TrailFrame 账户",
       dashboard: "工作台",
       localeToggleAria: "切换到英文",
       login: "登录",
       loginAria: "打开登录弹窗",
+      signOut: "退出登录",
       start: "立即开始",
       workspaceAria: "进入工作台",
     },
@@ -549,18 +573,74 @@ function setAuthMode(nextMode) {
 function syncHeaderAuthLink() {
   if (!headerAuthLink) return;
 
+  const isSignedIn = Boolean(currentSession);
+  headerAuthLink.hidden = isSignedIn;
+
+  if (isSignedIn) return;
+
   const copy = getCopy().header;
-
-  if (currentSession) {
-    headerAuthLink.textContent = copy.dashboard;
-    headerAuthLink.dataset.authOpen = "account";
-    headerAuthLink.setAttribute("aria-label", copy.workspaceAria);
-    return;
-  }
-
   headerAuthLink.textContent = copy.login;
   headerAuthLink.dataset.authOpen = "login";
   headerAuthLink.setAttribute("aria-label", copy.loginAria);
+}
+
+function setLandingAccountMenuOpen(open) {
+  if (!landingAccountMenuRoot || !landingAccountMenuButton || !landingAccountMenu) return;
+  landingAccountMenuRoot.classList.toggle("is-open", open);
+  landingAccountMenuButton.setAttribute("aria-expanded", open ? "true" : "false");
+  landingAccountMenu.hidden = !open;
+}
+
+function closeLandingAccountMenu() {
+  setLandingAccountMenuOpen(false);
+}
+
+function syncHeaderAccountMenu() {
+  const copy = getCopy().header;
+  const isSignedIn = Boolean(currentSession);
+
+  // Select all workspace entry links (header start, hero primary) and hide them when signed in
+  const workspaceLinks = document.querySelectorAll(".js-workspace-link");
+  workspaceLinks.forEach(link => {
+    link.hidden = isSignedIn;
+  });
+
+  if (!landingAccountMenuRoot || !landingAccountMenuButton || !landingAccountAvatar) return;
+
+  landingAccountMenuRoot.hidden = !isSignedIn;
+  if (!isSignedIn) {
+    closeLandingAccountMenu();
+    return;
+  }
+
+  const displayName =
+    currentAuthState?.displayName ||
+    currentSession?.user?.user_metadata?.display_name ||
+    currentSession?.user?.email?.split("@")[0] ||
+    "TrailFrame";
+
+  landingAccountAvatar.textContent = getAuthInitials(currentAuthState || { displayName });
+  landingAccountMenuButton.setAttribute("aria-label", copy.accountAria);
+  landingAccountMenuButton.setAttribute("title", copy.accountAria);
+
+  if (landingAccountMenuTitle) {
+    landingAccountMenuTitle.textContent = displayName || copy.accountFallbackTitle;
+  }
+  if (landingAccountMenuSubtitle) {
+    const email = currentAuthState?.email || currentSession?.user?.email || "";
+    const provider = currentAuthState ? getAuthProviderLabel(currentAuthState) : "";
+    landingAccountMenuSubtitle.textContent = email
+      ? provider
+        ? `${email} · ${provider}`
+        : email
+      : copy.accountFallbackTitle;
+  }
+  if (landingAccountSignOutBtn) {
+    landingAccountSignOutBtn.textContent = copy.signOut;
+  }
+  if (landingWorkspaceLink) {
+    landingWorkspaceLink.textContent = copy.workspaceAria;
+  }
 }
 
 function syncLandingLocale() {
@@ -627,6 +707,8 @@ function syncLandingLocale() {
     localeToggle.setAttribute("aria-label", copy.header.localeToggleAria);
     localeToggle.setAttribute("title", copy.header.localeToggleAria);
   }
+
+  syncHeaderAccountMenu();
 }
 
 function applyLocale(nextLocale) {
@@ -685,7 +767,20 @@ function isValidEmail(value) {
 
 async function refreshAuthState() {
   currentSession = await getSession();
+  currentAuthState = currentSession ? buildAuthState(currentSession, null) : null;
   syncHeaderAuthLink();
+  syncHeaderAccountMenu();
+
+  if (currentSession) {
+    try {
+      const profile = await waitForProfile(currentSession.user.id, { attempts: 4, delayMs: 180 });
+      currentAuthState = buildAuthState(currentSession, profile);
+      syncHeaderAccountMenu();
+    } catch (error) {
+      console.error("Failed to hydrate landing auth profile", error);
+    }
+  }
+
   return currentSession;
 }
 
@@ -704,6 +799,28 @@ function getOAuthReturnUrl() {
 
 localeToggle?.addEventListener("click", () => {
   applyLocale(currentLocale === "en" ? "zh" : "en");
+});
+
+landingAccountMenuButton?.addEventListener("click", () => {
+  const nextExpanded = landingAccountMenuButton.getAttribute("aria-expanded") !== "true";
+  setLandingAccountMenuOpen(nextExpanded);
+});
+
+landingAccountMenu?.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  if (!target?.closest("#landingAccountSignOutBtn")) return;
+
+  signOut()
+    .catch((error) => {
+      console.error(error);
+    })
+    .finally(() => {
+      currentSession = null;
+      currentAuthState = null;
+      closeLandingAccountMenu();
+      syncHeaderAuthLink();
+      syncHeaderAccountMenu();
+    });
 });
 
 authOpeners.forEach((opener) => {
@@ -726,7 +843,7 @@ startLinks.forEach((link) => {
 
     event.preventDefault();
     const anchor = event.currentTarget instanceof HTMLAnchorElement ? event.currentTarget : null;
-    openAuthModal("register", anchor?.getAttribute("href"));
+    openAuthModal("login", anchor?.getAttribute("href"));
   });
 });
 
@@ -785,6 +902,15 @@ authForm?.addEventListener("submit", async (event) => {
     assertSupabaseConfigured();
 
     if (authMode === "register") {
+      const alreadyRegistered = await isEmailRegistered(email);
+      if (alreadyRegistered) {
+        setAuthMode("login");
+        if (authEmail) authEmail.value = email;
+        showStatus(authCopy.validation.emailRegistered, "info");
+        authPassword?.focus();
+        return;
+      }
+
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -799,7 +925,9 @@ authForm?.addEventListener("submit", async (event) => {
       if (error) throw error;
 
       currentSession = data.session ?? null;
+      currentAuthState = currentSession ? buildAuthState(currentSession, null) : null;
       syncHeaderAuthLink();
+      syncHeaderAccountMenu();
 
       if (data.session) {
         showStatus(authCopy.status.registerSuccessAuto, "success");
@@ -830,9 +958,21 @@ authForm?.addEventListener("submit", async (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && authModal && !authModal.hidden) {
-    closeAuthModal();
+  if (event.key === "Escape") {
+    if (authModal && !authModal.hidden) {
+      closeAuthModal();
+      return;
+    }
+    closeLandingAccountMenu();
   }
+});
+
+document.addEventListener("click", (event) => {
+  if (!landingAccountMenuRoot || !landingAccountMenuButton || !landingAccountMenu) return;
+  if (landingAccountMenu.hidden) return;
+  const target = event.target instanceof Node ? event.target : null;
+  if (target && landingAccountMenuRoot.contains(target)) return;
+  closeLandingAccountMenu();
 });
 
 async function bootstrapAuth() {
@@ -847,9 +987,22 @@ async function bootstrapAuth() {
     return;
   }
 
-  supabase.auth.onAuthStateChange((_event, session) => {
+  supabase.auth.onAuthStateChange(async (_event, session) => {
     currentSession = session;
+    currentAuthState = session ? buildAuthState(session, null) : null;
     syncHeaderAuthLink();
+    syncHeaderAccountMenu();
+
+    if (session) {
+      try {
+        const profile = await waitForProfile(session.user.id, { attempts: 3, delayMs: 160 });
+        if (currentSession?.user?.id !== session.user.id) return;
+        currentAuthState = buildAuthState(session, profile);
+        syncHeaderAccountMenu();
+      } catch (error) {
+        console.error("Failed to sync landing auth state", error);
+      }
+    }
   });
 
   await refreshAuthState();

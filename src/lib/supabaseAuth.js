@@ -166,6 +166,27 @@ export async function consumeCredits(amount, reason = "video_export") {
   return Array.isArray(data) ? data[0] || null : data;
 }
 
+export async function isEmailRegistered(email) {
+  assertSupabaseConfigured();
+  const normalizedEmail = normalizeText(email).toLowerCase();
+  if (!normalizedEmail) return false;
+
+  const { data, error } = await supabase.rpc("is_email_registered", {
+    target_email: normalizedEmail,
+  });
+
+  if (error) {
+    if (
+      error.code === "PGRST202" ||
+      normalizeText(error.message).toLowerCase().includes("is_email_registered")
+    ) {
+      return false;
+    }
+    throw error;
+  }
+  return Boolean(data);
+}
+
 export function subscribeToProfile(userId, onChange) {
   assertSupabaseConfigured();
   return supabase
