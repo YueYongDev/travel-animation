@@ -206,8 +206,8 @@ const LANDING_COPY = {
         "Added to the inspiration stack by 5,000+ travel creators",
       secondary: "See workflow",
       titleLines: [
-        "Turn every place you've crossed",
-        "into light stitched frame by frame.",
+        "Turn every route you take",
+        "into a light-stitched frame.",
       ],
     },
     htmlLang: "en",

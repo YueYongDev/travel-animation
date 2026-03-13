@@ -23,6 +23,8 @@ import {
   waitForProfile,
 } from "./lib/supabaseAuth";
 
+const WORKSPACE_LOCALE_KEY = "trailframe-landing-locale";
+
 const playBtn = document.getElementById("playBtn");
 const exportBtn = document.getElementById("exportBtn");
 const speedBtn = document.getElementById("speedBtn");
@@ -51,6 +53,14 @@ const globeContainer = document.getElementById("globeContainer");
 const routeTimeline = document.getElementById("routeTimeline");
 const sidebarCard = document.querySelector(".sidebar-card");
 const modeToggles = document.querySelectorAll(".mode-toggle[data-select]");
+const metaDescription = document.querySelector('meta[name="description"]');
+const workspaceBrandLink = document.querySelector(".workspace-brand");
+const workspaceBrandNote = document.querySelector(".workspace-brand-note");
+const creditsBadgeLabel = document.querySelector(".credits-badge-label");
+const plannerTitle = document.querySelector(".planner-header h2");
+const plannerBody = document.querySelector(".planner-header p");
+const addDestLabel = addDestBtn?.querySelector("span:last-child") ?? null;
+const arrivalChip = document.querySelector(".arrival-chip");
 const motionDebugEnabled = new URLSearchParams(window.location.search).has("motionDebug");
 
 let scene = null;
@@ -88,20 +98,258 @@ let motionDebugTextarea = null;
 let motionDebugLiveText = "";
 let motionDebugSegmentsText = "";
 let motionDebugBoundaryText = "";
-const PLAY_BUTTON_REPLAY_HTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg> Replay';
-const EXPORT_BUTTON_HTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Export';
+
+const WORKSPACE_COPY = {
+  en: {
+    htmlLang: "en",
+    numberLocale: "en-US",
+    documentTitle: "TrailFrame Workspace | Route Planning",
+    metaDescription:
+      "Plan a route on the left and preview the generated travel video on the right.",
+    brandHomeAria: "TrailFrame home",
+    brandNote: "Routes to video in one step",
+    creditsLabel: "Credits",
+    creditsLoading: "Loading...",
+    creditsLoadingAria: "Loading credits",
+    creditsRemainingAria: (count) => `${count} credits remaining`,
+    creditsValue: (count) => `${count} left`,
+    creditsEmpty: "No credits",
+    creditsEmptyAria: "No credits remaining",
+    accountMenuTitle: (name) => `${name}'s Workspace`,
+    accountMenuSubtitle: (email, provider) =>
+      email ? `${email} · ${provider}` : "Your routes and exports are ready.",
+    signOut: "Sign out",
+    plannerTitle: "Route Planning",
+    plannerBody: "Start with one place, then add stops as you shape the journey.",
+    searchPlaceholder: "Search city or coordinates",
+    addDestination: "Add destination",
+    generateRoute: "Generate Route",
+    generating: "Generating...",
+    addOneMoreStop: "Add one more stop",
+    previewWaiting: "WAITING FOR ROUTE",
+    mapAria: "Travel preview",
+    arrival: "Arrived",
+    replay: "Replay",
+    playing: "Playing...",
+    export: "Export",
+    exportDisabledTitle: "Generate Route first, then export after the preview finishes.",
+    charging: "Charging...",
+    exporting: "Exporting...",
+    basemapPreview: "REMOTION PREVIEW",
+    editStop: "Edit stop",
+    reenterStop: "Re-enter stop",
+    deleteStop: "Delete stop",
+    confirmStop: "Confirm stop",
+    confirmStopFailed: "Unable to confirm this stop.",
+    cancelEditing: "Cancel editing",
+    focusStop: (name) => `Focus ${name || "stop"} on map`,
+    awaitingConfirmation: "Awaiting confirmation",
+    newStop: "New stop",
+    confirmCurrentBeforeAdding: "Confirm the current stop before adding another one.",
+    addDestinationHintMax: (count) => `Up to ${count} stops`,
+    maxStopsError: (count) => `You can add up to ${count} stops.`,
+    needTwoStops: "At least 2 stops are required.",
+    stopNotFound: (query) => `Address not found: ${query}`,
+    dragToReorder: "Drag to reorder",
+    transportMode: (mode) => `Transport mode: ${mode}`,
+    modeNames: {
+      plane: "plane",
+      train: "train",
+      car: "car",
+      ship: "ship",
+      bike: "bike",
+      walk: "walk",
+    },
+    motionDebugTitle: "Motion Debug",
+    motionDebugCopy: "Copy",
+    motionDebugCopied: "Copied",
+    recordingFailed: "Automatic recording failed.",
+    playbackFailed: "Playback failed. Please try again.",
+    exportFallbackPng:
+      "This browser does not support video export. A PNG snapshot was downloaded instead.",
+    playBeforeExport: "Play the animation once before exporting the video.",
+    exportFallbackWebm:
+      "This browser cannot export MP4 directly. A WebM file was downloaded instead.",
+    authInitFailed: "Account initialization failed. Please sign in again.",
+    insufficientCredits: (cost) => `Not enough credits. Each export costs ${cost} credits.`,
+    profileNotFound:
+      "The credits profile is not ready yet. Try again shortly and confirm the Supabase SQL setup has run.",
+  },
+  zh: {
+    htmlLang: "zh-CN",
+    numberLocale: "zh-CN",
+    documentTitle: "TrailFrame 工作台 | 路线规划",
+    metaDescription: "左侧规划路线，右侧预览生成的旅行动画。",
+    brandHomeAria: "TrailFrame 首页",
+    brandNote: "路线，一键成片",
+    creditsLabel: "积分",
+    creditsLoading: "加载中...",
+    creditsLoadingAria: "正在加载积分",
+    creditsRemainingAria: (count) => `剩余 ${count} 积分`,
+    creditsValue: (count) => `剩余 ${count} 积分`,
+    creditsEmpty: "无可用积分",
+    creditsEmptyAria: "积分已用完",
+    accountMenuTitle: (name) => `${name} 的工作台`,
+    accountMenuSubtitle: (email, provider) =>
+      email ? `${email} · ${provider}` : "你的路线和导出内容已准备就绪。",
+    signOut: "退出登录",
+    plannerTitle: "路线规划",
+    plannerBody: "从一个地点开始，逐步添加站点，组合你的旅程。",
+    searchPlaceholder: "搜索城市或坐标",
+    addDestination: "添加目的地",
+    generateRoute: "生成路线",
+    generating: "生成中...",
+    addOneMoreStop: "再添加一个站点",
+    previewWaiting: "等待路线",
+    mapAria: "旅程预览",
+    arrival: "已到达",
+    replay: "重播",
+    playing: "播放中...",
+    export: "导出",
+    exportDisabledTitle: "请先生成路线，并在预览播放完成后再导出。",
+    charging: "扣费中...",
+    exporting: "导出中...",
+    basemapPreview: "REMOTION 预览",
+    editStop: "编辑站点",
+    reenterStop: "重新输入站点",
+    deleteStop: "删除站点",
+    confirmStop: "确认站点",
+    confirmStopFailed: "无法确认该地点。",
+    cancelEditing: "取消编辑",
+    focusStop: (name) => `在地图上聚焦 ${name || "站点"}`,
+    awaitingConfirmation: "待确认",
+    newStop: "新站点",
+    confirmCurrentBeforeAdding: "请先确认当前地点，再添加新的地点。",
+    addDestinationHintMax: (count) => `最多添加 ${count} 个地点`,
+    maxStopsError: (count) => `最多只能添加 ${count} 个地点`,
+    needTwoStops: "至少需要 2 个点位",
+    stopNotFound: (query) => `找不到地址：${query}`,
+    dragToReorder: "拖动调整顺序",
+    transportMode: (mode) => `交通方式：${mode}`,
+    modeNames: {
+      plane: "飞机",
+      train: "火车",
+      car: "汽车",
+      ship: "轮船",
+      bike: "骑行",
+      walk: "步行",
+    },
+    motionDebugTitle: "运动调试",
+    motionDebugCopy: "复制",
+    motionDebugCopied: "已复制",
+    recordingFailed: "自动录制失败。",
+    playbackFailed: "播放失败，请重试。",
+    exportFallbackPng: "当前浏览器不支持视频导出，已导出 PNG 截图。",
+    playBeforeExport: "请先播放一次动画，再导出视频。",
+    exportFallbackWebm: "当前浏览器不支持直接导出 MP4，已导出 WebM。",
+    authInitFailed: "账号初始化失败，请重新登录。",
+    insufficientCredits: (cost) => `积分不足，导出一次需要 ${cost} 积分。`,
+    profileNotFound:
+      "积分档案还没初始化完成，请稍后重试并确认 Supabase SQL 脚本已执行。",
+  },
+};
+
+function readStoredLocale() {
+  try {
+    const storedLocale = window.localStorage.getItem(WORKSPACE_LOCALE_KEY);
+    return storedLocale === "en" ? "en" : "zh";
+  } catch {
+    return document.documentElement.dataset.locale === "en" ? "en" : "zh";
+  }
+}
+
+let currentLocale = readStoredLocale();
+
+function getCopy() {
+  return WORKSPACE_COPY[currentLocale];
+}
+
+function getModeLabel(mode) {
+  return getCopy().modeNames[mode] || mode;
+}
+
+function getPlayButtonReplayHTML() {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg> ${getCopy().replay}`;
+}
+
+function getExportButtonHTML() {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> ${getCopy().export}`;
+}
+
+function getSearchPlaceholder() {
+  return getCopy().searchPlaceholder;
+}
+
+function syncRouteInputPlaceholders() {
+  getTimelineRows().forEach((row) => {
+    const input = getRowInput(row);
+    if (input) input.placeholder = getSearchPlaceholder();
+  });
+}
+
+function syncMotionDebugLocale() {
+  if (!motionDebugPanel) return;
+  const copy = getCopy();
+  const title = motionDebugPanel.querySelector(".motion-debug-panel__header strong");
+  const copyButton = motionDebugPanel.querySelector(".motion-debug-panel__copy");
+  if (title) title.textContent = copy.motionDebugTitle;
+  if (copyButton && copyButton.textContent !== copy.motionDebugCopied) {
+    copyButton.textContent = copy.motionDebugCopy;
+  }
+}
+
+function syncWorkspaceLocale() {
+  const copy = getCopy();
+  document.documentElement.lang = copy.htmlLang;
+  document.documentElement.dataset.locale = currentLocale;
+  document.title = copy.documentTitle;
+  metaDescription?.setAttribute("content", copy.metaDescription);
+  workspaceBrandLink?.setAttribute("aria-label", copy.brandHomeAria);
+  if (workspaceBrandNote) workspaceBrandNote.textContent = copy.brandNote;
+  if (creditsBadgeLabel) creditsBadgeLabel.textContent = copy.creditsLabel;
+  if (creditsBadge?.dataset.state === "loading") {
+    creditsBadge.setAttribute("aria-label", copy.creditsLoadingAria);
+  }
+  if (!authState && creditsValue) {
+    creditsValue.textContent = copy.creditsLoading;
+  }
+  if (!authState && accountMenuTitle) {
+    accountMenuTitle.textContent = copy.accountMenuTitle("TrailFrame");
+  }
+  if (!authState && accountMenuSubtitle) {
+    accountMenuSubtitle.textContent = copy.accountMenuSubtitle("", "");
+  }
+  if (accountSignOutBtn) accountSignOutBtn.textContent = copy.signOut;
+  if (plannerTitle) plannerTitle.textContent = copy.plannerTitle;
+  if (plannerBody) plannerBody.textContent = copy.plannerBody;
+  if (addDestLabel) addDestLabel.textContent = copy.addDestination;
+  globeContainer?.setAttribute("aria-label", copy.mapAria);
+  if (arrivalChip) arrivalChip.textContent = copy.arrival;
+  syncRouteInputPlaceholders();
+  syncMotionDebugLocale();
+  if (!playing && playBtn) {
+    playBtn.innerHTML = getPlayButtonReplayHTML();
+  }
+  syncRouteRowsUI();
+  updateRouteOverview();
+  syncGenerateButtonState();
+  syncAddDestinationButtonState();
+  updateBasemapButtonUI();
+  syncExportButtonState();
+}
 
 function syncExportButtonState() {
   if (!exportBtn) return;
+  const copy = getCopy();
   const canExport =
     Boolean(scene) &&
     !building &&
     !playing &&
     Boolean(latestPlaybackBlob);
   exportBtn.disabled = !canExport;
-  exportBtn.title = canExport ? "" : "Generate Route first, then export after the preview finishes.";
+  exportBtn.title = canExport ? "" : copy.exportDisabledTitle;
   if (!building && !playing) {
-    exportBtn.innerHTML = EXPORT_BUTTON_HTML;
+    exportBtn.innerHTML = getExportButtonHTML();
   }
 }
 
@@ -122,12 +370,13 @@ function ensureMotionDebugPanel() {
     return motionDebugPanel;
   }
 
+  const copy = getCopy();
   const panel = document.createElement("section");
   panel.className = "motion-debug-panel";
   panel.innerHTML = `
     <div class="motion-debug-panel__header">
-      <strong>Motion Debug</strong>
-      <button type="button" class="motion-debug-panel__copy">Copy</button>
+      <strong>${copy.motionDebugTitle}</strong>
+      <button type="button" class="motion-debug-panel__copy">${copy.motionDebugCopy}</button>
     </div>
     <textarea class="motion-debug-panel__output" readonly spellcheck="false"></textarea>
   `;
@@ -141,9 +390,9 @@ function ensureMotionDebugPanel() {
   copyButton.addEventListener("click", async () => {
     try {
       await navigator.clipboard.writeText(output.value);
-      copyButton.textContent = "Copied";
+      copyButton.textContent = copy.motionDebugCopied;
       window.setTimeout(() => {
-        copyButton.textContent = "Copy";
+        copyButton.textContent = getCopy().motionDebugCopy;
       }, 1200);
     } catch {
       output.focus();
@@ -211,7 +460,7 @@ function formatPlaybackRate(rate) {
 }
 
 function formatDistanceKm(km) {
-  return `${Math.round(km).toLocaleString("en-US")} km`;
+  return `${Math.round(km).toLocaleString(getCopy().numberLocale)} km`;
 }
 
 function getAccountDisplayName() {
@@ -223,6 +472,7 @@ function getAccountInitials() {
 }
 
 function syncAccountUI() {
+  const copy = getCopy();
   const displayName = getAccountDisplayName();
   if (accountAvatar) accountAvatar.textContent = getAccountInitials();
   if (accountLabel) accountLabel.textContent = displayName;
@@ -231,17 +481,22 @@ function syncAccountUI() {
     creditsBadge.dataset.state = remainingCredits > 0 ? "available" : "empty";
     creditsBadge.setAttribute(
       "aria-label",
-      remainingCredits > 0 ? `${remainingCredits} credits remaining` : "No credits remaining",
+      remainingCredits > 0
+        ? copy.creditsRemainingAria(remainingCredits)
+        : copy.creditsEmptyAria,
     );
   }
   if (creditsValue) {
-    creditsValue.textContent = remainingCredits > 0 ? `${remainingCredits} left` : "No credits";
+    creditsValue.textContent = remainingCredits > 0
+      ? copy.creditsValue(remainingCredits)
+      : copy.creditsEmpty;
   }
-  if (accountMenuTitle) accountMenuTitle.textContent = `${displayName}'s Workspace`;
+  if (accountMenuTitle) accountMenuTitle.textContent = copy.accountMenuTitle(displayName);
   if (accountMenuSubtitle) {
-    accountMenuSubtitle.textContent = authState?.email
-      ? `${authState.email} · ${getAuthProviderLabel(authState)}`
-      : "Your routes and exports are ready.";
+    accountMenuSubtitle.textContent = copy.accountMenuSubtitle(
+      authState?.email || "",
+      getAuthProviderLabel(authState),
+    );
   }
 }
 
@@ -276,12 +531,13 @@ async function initializeAuthState() {
 
 function getExportErrorMessage(error) {
   const message = error?.message || "";
+  const copy = getCopy();
   if (message.toLowerCase().includes("insufficient credits")) {
-    return `积分不足，导出一次需要 ${EXPORT_CREDIT_COST} 积分。`;
+    return copy.insufficientCredits(EXPORT_CREDIT_COST);
   }
 
   if (message.toLowerCase().includes("profile not found")) {
-    return "积分档案还没初始化完成，请稍后重试并确认 Supabase SQL 脚本已执行。";
+    return copy.profileNotFound;
   }
 
   return getAuthErrorMessage(error, "login");
@@ -316,9 +572,10 @@ function getTimelineLabels() {
 function updateRouteOverview() {
   const labels = getTimelineLabels();
   const stopCount = labels.length;
+  const copy = getCopy();
 
   if (!stopCount) {
-    if (previewRouteLabel) previewRouteLabel.textContent = "WAITING FOR ROUTE";
+    if (previewRouteLabel) previewRouteLabel.textContent = copy.previewWaiting;
     updateLegDistanceLabels();
     return;
   }
@@ -334,7 +591,8 @@ function updateRouteOverview() {
   updateLegDistanceLabels();
 }
 
-function createTimelineRow(role, placeholder, state = {}) {
+function createTimelineRow(role, placeholder = getSearchPlaceholder(), state = {}) {
+  const copy = getCopy();
   const row = document.createElement("div");
   row.className = "timeline-row";
   row.dataset.role = role;
@@ -342,15 +600,15 @@ function createTimelineRow(role, placeholder, state = {}) {
     <span class="row-order" aria-hidden="true"></span>
     <div class="timeline-row-main">
       <div class="row-display-shell">
-        <button type="button" class="row-display-card" aria-label="Edit stop">
+        <button type="button" class="row-display-card" aria-label="${copy.editStop}">
           <strong class="row-display-title"></strong>
           <span class="row-display-meta"></span>
         </button>
         <div class="row-card-actions">
-          <button type="button" class="row-card-action" data-action="edit" aria-label="Re-enter stop">
+          <button type="button" class="row-card-action" data-action="edit" aria-label="${copy.reenterStop}">
             <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
           </button>
-          <button type="button" class="row-card-action danger" data-action="delete" aria-label="Delete stop">
+          <button type="button" class="row-card-action danger" data-action="delete" aria-label="${copy.deleteStop}">
             <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /></svg>
           </button>
         </div>
@@ -364,10 +622,10 @@ function createTimelineRow(role, placeholder, state = {}) {
         </span>
         <input type="text" placeholder="${placeholder}" />
         <div class="row-edit-actions">
-          <button type="button" class="row-edit-confirm" aria-label="Confirm stop">
+          <button type="button" class="row-edit-confirm" aria-label="${copy.confirmStop}">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
           </button>
-          <button type="button" class="row-edit-cancel" aria-label="Cancel editing">
+          <button type="button" class="row-edit-cancel" aria-label="${copy.cancelEditing}">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
@@ -494,7 +752,7 @@ function initSidebarOverflowState() {
 function syncModeButton(btn) {
   const mode = MODES.includes(btn.dataset.mode) ? btn.dataset.mode : "plane";
   btn.dataset.mode = mode;
-  btn.setAttribute("aria-label", `Transport mode: ${mode}`);
+  btn.setAttribute("aria-label", getCopy().transportMode(getModeLabel(mode)));
   btn.setAttribute("aria-expanded", "false");
   ensureModePicker(btn);
   syncModePickerSelection(btn);
@@ -512,7 +770,7 @@ function ensureModePicker(btn) {
     picker.setAttribute("aria-hidden", "true");
     picker.innerHTML = MODES.map(
       (mode) => `
-        <button type="button" class="mode-option" data-mode="${mode}" role="menuitemradio" aria-checked="false" aria-label="${mode}">
+        <button type="button" class="mode-option" data-mode="${mode}" role="menuitemradio" aria-checked="false" aria-label="${getCopy().transportMode(getModeLabel(mode))}">
           <span class="mode-option-emoji" aria-hidden="true">${MODE_EMOJI[mode] || "✈️"}</span>
         </button>
       `
@@ -547,7 +805,7 @@ function closeAllModePickers(exceptConnector = null) {
 function setModeForToggle(toggle, mode) {
   const next = MODES.includes(mode) ? mode : "plane";
   toggle.dataset.mode = next;
-  toggle.setAttribute("aria-label", `Transport mode: ${next}`);
+  toggle.setAttribute("aria-label", getCopy().transportMode(getModeLabel(next)));
   syncModePickerSelection(toggle);
 }
 
@@ -655,7 +913,7 @@ function countryCodeToFlagEmoji(countryCode) {
 }
 
 function formatCountryLabel(country, countryCode = "") {
-  const normalizedCountry = sanitizeCountry(country || "Awaiting confirmation");
+  const normalizedCountry = sanitizeCountry(country || getCopy().awaitingConfirmation);
   return `${countryCodeToFlagEmoji(countryCode)} ${normalizedCountry}`;
 }
 
@@ -776,39 +1034,49 @@ function syncTimelineRowPresentation(row, index = getTimelineRows().indexOf(row)
   const title = row.querySelector(".row-display-title");
   const meta = row.querySelector(".row-display-meta");
   const displayCard = row.querySelector(".row-display-card");
+  const editButton = row.querySelector('.row-card-action[data-action="edit"]');
   const deleteButton = row.querySelector('.row-card-action[data-action="delete"]');
+  const confirmButton = row.querySelector(".row-edit-confirm");
   const editDismissButton = row.querySelector(".row-edit-cancel");
   const isResolved = rowHasResolvedLocation(row);
   const isEditing = row.dataset.editing === "true" || !isResolved;
   const committedState = getCommittedRowState(row);
   const rowValue = getResolvedRowValue(input);
   const canDelete = getTimelineRows().length > 2;
+  const copy = getCopy();
 
   if (order) order.textContent = String(index + 1);
-  if (title) title.textContent = getCityFromQuery(rowValue || input.placeholder || "New stop");
+  if (title) title.textContent = getCityFromQuery(rowValue || input.placeholder || copy.newStop);
   if (meta) {
     meta.textContent = formatCountryLabel(
-      input.dataset.country || "Awaiting confirmation",
+      input.dataset.country || copy.awaitingConfirmation,
       input.dataset.countryCode || "",
     );
   }
   if (displayCard) {
     displayCard.setAttribute(
       "aria-label",
-      isResolved ? `Focus ${title?.textContent || "stop"} on map` : "Confirm stop",
+      isResolved ? copy.focusStop(title?.textContent || copy.newStop) : copy.confirmStop,
     );
   }
 
   row.classList.toggle("is-editing", isEditing);
   row.classList.toggle("is-resolved", isResolved);
+  if (editButton instanceof HTMLButtonElement) {
+    editButton.setAttribute("aria-label", copy.reenterStop);
+  }
   if (deleteButton instanceof HTMLButtonElement) {
     deleteButton.disabled = !canDelete;
+    deleteButton.setAttribute("aria-label", copy.deleteStop);
+  }
+  if (confirmButton instanceof HTMLButtonElement) {
+    confirmButton.setAttribute("aria-label", copy.confirmStop);
   }
   if (editDismissButton instanceof HTMLButtonElement) {
     editDismissButton.disabled = !committedState && !canDelete;
     editDismissButton.setAttribute(
       "aria-label",
-      committedState ? "Cancel editing" : "Delete stop",
+      committedState ? copy.cancelEditing : copy.deleteStop,
     );
   }
 }
@@ -971,7 +1239,7 @@ function renderAddressSuggestions(input) {
         await applyAddressSuggestion(input, suggestion);
       } catch (error) {
         // eslint-disable-next-line no-alert
-        alert(error.message || "无法确认该地点");
+        alert(error.message || getCopy().confirmStopFailed);
       }
     });
     list.appendChild(button);
@@ -1057,7 +1325,7 @@ function bindAddressSearch(input) {
       event.stopImmediatePropagation();
       void applyAddressSuggestion(input, state.suggestions[state.activeIndex]).catch((error) => {
         // eslint-disable-next-line no-alert
-        alert(error.message || "无法确认该地点");
+        alert(error.message || getCopy().confirmStopFailed);
       });
       return;
     }
@@ -1092,7 +1360,7 @@ async function resolveStopFromInput(input) {
   }
 
   const geocoded = await geocodeAddress(query);
-  if (!geocoded) throw new Error(`找不到地址: ${query}`);
+  if (!geocoded) throw new Error(getCopy().stopNotFound(query));
 
   input.dataset.coord = `${geocoded.lon},${geocoded.lat}`;
   input.dataset.country = geocoded.country;
@@ -1135,7 +1403,7 @@ function bindRouteInput(input) {
       await confirmRowInput(row);
     } catch (error) {
       // eslint-disable-next-line no-alert
-      alert(error.message || "无法确认该地点");
+      alert(error.message || getCopy().confirmStopFailed);
     }
   });
 }
@@ -1171,7 +1439,7 @@ function bindTimelineRowControls(row) {
       await confirmRowInput(row);
     } catch (error) {
       // eslint-disable-next-line no-alert
-      alert(error.message || "无法确认该地点");
+      alert(error.message || getCopy().confirmStopFailed);
     }
   });
 
@@ -1182,14 +1450,20 @@ function bindTimelineRowControls(row) {
 
 function syncGenerateButtonState() {
   if (!generateBtn) return;
+  const copy = getCopy();
   const rowCount = getTimelineRows().length;
   const ready = rowCount >= 2;
   generateBtn.disabled = building || !ready;
-  generateBtn.textContent = building ? "Generating..." : ready ? "Generate Route" : "Add one more stop";
+  generateBtn.textContent = building
+    ? copy.generating
+    : ready
+      ? copy.generateRoute
+      : copy.addOneMoreStop;
 }
 
 function syncAddDestinationButtonState() {
   if (!(addDestBtn instanceof HTMLButtonElement)) return;
+  const copy = getCopy();
   const rows = getTimelineRows();
   const rowCount = rows.length;
   const hasPendingLocation = rows.some(
@@ -1199,9 +1473,9 @@ function syncAddDestinationButtonState() {
   let hintText = "";
 
   if (hasPendingLocation) {
-    hintText = "请先确认当前地点，再添加新的地点";
+    hintText = copy.confirmCurrentBeforeAdding;
   } else if (rowCount >= MAX_ROUTE_LOCATIONS) {
-    hintText = `最多添加 ${MAX_ROUTE_LOCATIONS} 个地点`;
+    hintText = copy.addDestinationHintMax(MAX_ROUTE_LOCATIONS);
   }
 
   addDestBtn.disabled = !canAddMore;
@@ -1217,7 +1491,7 @@ async function collectStops() {
   const stops = [];
 
   if (rows.length > MAX_ROUTE_LOCATIONS) {
-    throw new Error(`最多只能添加 ${MAX_ROUTE_LOCATIONS} 个地点`);
+    throw new Error(getCopy().maxStopsError(MAX_ROUTE_LOCATIONS));
   }
 
   for (const row of rows) {
@@ -1229,7 +1503,7 @@ async function collectStops() {
     stops.push(stop);
   }
 
-  if (stops.length < 2) throw new Error("至少需要 2 个点位");
+  if (stops.length < 2) throw new Error(getCopy().needTwoStops);
   updateLegDistanceLabels();
   return stops;
 }
@@ -1458,7 +1732,7 @@ function bindTimelineRowDrag(row) {
   const order = row.querySelector(".row-order");
   if (!order) return;
   order.classList.add("pin-draggable");
-  order.setAttribute("title", "Drag to reorder");
+  order.setAttribute("title", getCopy().dragToReorder);
 }
 
 function initTimelineDragSort() {
@@ -1520,11 +1794,11 @@ function initTimelineDragSort() {
 }
 
 function createWaypointRow(index) {
-  return createTimelineRow("waypoint", `Waypoint ${index}`);
+  return createTimelineRow("waypoint", getSearchPlaceholder());
 }
 
 function createEndRow() {
-  return createTimelineRow("end", "Destination");
+  return createTimelineRow("end", getSearchPlaceholder());
 }
 
 function createTimelineConnector() {
@@ -1532,7 +1806,7 @@ function createTimelineConnector() {
   connector.className = "timeline-connector";
   connector.innerHTML = `
     <div class="connector-line" aria-hidden="true"></div>
-    <button type="button" class="mode-toggle" data-mode="plane" aria-label="Transport mode: plane">
+    <button type="button" class="mode-toggle" data-mode="plane" aria-label="${getCopy().transportMode(getModeLabel("plane"))}">
       <svg class="icon-plane" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
         fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z" />
@@ -1647,13 +1921,13 @@ function addDestinationRow() {
   );
   if (hasPendingLocation) {
     // eslint-disable-next-line no-alert
-    alert("请先确认当前地点，再添加新的地点");
+    alert(getCopy().confirmCurrentBeforeAdding);
     syncAddDestinationButtonState();
     return;
   }
   if (rows.length >= MAX_ROUTE_LOCATIONS) {
     // eslint-disable-next-line no-alert
-    alert(`最多只能添加 ${MAX_ROUTE_LOCATIONS} 个地点`);
+    alert(getCopy().maxStopsError(MAX_ROUTE_LOCATIONS));
     syncAddDestinationButtonState();
     return;
   }
@@ -1763,7 +2037,7 @@ async function initScene(
 
 function updateBasemapButtonUI() {
   if (!basemapBtn) return;
-  basemapBtn.textContent = "REMOTION PREVIEW";
+  basemapBtn.textContent = getCopy().basemapPreview;
   basemapBtn.dataset.basemap = "preview";
   basemapBtn.disabled = true;
 }
@@ -1780,7 +2054,7 @@ async function run() {
   playing = true;
   syncExportButtonState();
   playBtn.disabled = true;
-  playBtn.textContent = "Playing...";
+  playBtn.textContent = getCopy().playing;
 
   const canvas = scene.viewer?.canvas;
   const mimeType = getSupportedVideoMimeType();
@@ -1800,7 +2074,7 @@ async function run() {
       if (event.data && event.data.size > 0) recordingChunks.push(event.data);
     };
     stopRecordingPromise = new Promise((resolve, reject) => {
-      recorder.onerror = () => reject(new Error("自动录制失败"));
+      recorder.onerror = () => reject(new Error(getCopy().recordingFailed));
       recorder.onstop = () => resolve();
     });
     recorder.start(120);
@@ -1823,12 +2097,12 @@ async function run() {
     if (recorder && recorder.state !== "inactive") recorder.stop();
     resetLatestPlayback();
     // eslint-disable-next-line no-alert
-    alert(error.message || "播放失败，请重试。");
+    alert(error.message || getCopy().playbackFailed);
   } finally {
     playing = false;
     syncExportButtonState();
     playBtn.disabled = false;
-    playBtn.innerHTML = PLAY_BUTTON_REPLAY_HTML;
+    playBtn.innerHTML = getPlayButtonReplayHTML();
     try {
       await refreshPreviewSceneFromRows({
         focusRow: selectedTimelineRow,
@@ -1879,24 +2153,24 @@ async function exportVideo() {
     a.click();
     a.remove();
     // eslint-disable-next-line no-alert
-    alert("当前浏览器不支持视频导出，已导出 PNG 截图。");
+    alert(getCopy().exportFallbackPng);
     return;
   }
 
   if (!latestPlaybackBlob) {
     // eslint-disable-next-line no-alert
-    alert("请先播放一次动画，再导出视频。");
+    alert(getCopy().playBeforeExport);
     return;
   }
 
   if (getRemainingCredits() < EXPORT_CREDIT_COST) {
     // eslint-disable-next-line no-alert
-    alert(`积分不足，导出一次需要 ${EXPORT_CREDIT_COST} 积分。`);
+    alert(getCopy().insufficientCredits(EXPORT_CREDIT_COST));
     return;
   }
 
   exportBtn.disabled = true;
-  exportBtn.textContent = "Charging...";
+  exportBtn.textContent = getCopy().charging;
 
   try {
     const creditResult = await consumeCredits(EXPORT_CREDIT_COST, "video_export");
@@ -1908,13 +2182,13 @@ async function exportVideo() {
       syncAccountUI();
     }
 
-    exportBtn.textContent = "Exporting...";
+    exportBtn.textContent = getCopy().exporting;
     const usedType = latestPlaybackMimeType || mimeType;
     const ext = getVideoFileExtension(usedType);
     downloadBlob(latestPlaybackBlob, `trailframe-${Date.now()}.${ext}`);
     if (ext !== "mp4") {
       // eslint-disable-next-line no-alert
-      alert("当前浏览器不支持直接导出 MP4，已导出 WebM。");
+      alert(getCopy().exportFallbackWebm);
     }
   } catch (error) {
     // eslint-disable-next-line no-alert
@@ -2048,14 +2322,24 @@ function bindWorkspaceEvents() {
 
 async function bootstrapWorkspace() {
   try {
+    syncWorkspaceLocale();
+    window.addEventListener("storage", (event) => {
+      if (event.key && event.key !== WORKSPACE_LOCALE_KEY) return;
+      const nextLocale = readStoredLocale();
+      if (nextLocale === currentLocale) return;
+      currentLocale = nextLocale;
+      syncWorkspaceLocale();
+      syncAccountUI();
+    });
     const ready = await initializeAuthState();
     if (!ready) return;
     bindWorkspaceEvents();
+    syncWorkspaceLocale();
     syncAccountUI();
   } catch (error) {
     console.error(error);
     // eslint-disable-next-line no-alert
-    alert(error.message || "账号初始化失败，请重新登录。");
+    alert(error.message || getCopy().authInitFailed);
     redirectToLandingAuth();
   }
 }
